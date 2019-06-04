@@ -1,8 +1,8 @@
 {
   "name": "homebridge-simplisafeplatform",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "SimpliSafe homebridge plugin with Sensors",
-  "main": "install.js",
+  "main": "index.js",
   "repository": {
     "type": "git",
     "url": "git://github.com/graanco/homebridge-SimpliSafePlatform.git"
