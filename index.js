@@ -84,7 +84,7 @@ SimpliSafe.prototype.getAccessory = function(sensor){
       .setCharacteristic(Characteristic.HardwareRevision, ss.sysVersion);
 
     platform.accessories.push(SystemAccessory);
-    platform.api.registerPlatformAccessories("homebridge-SimpliSafePlatform", "homebridge-SimpliSafePlatform", [SystemAccessory]);
+    platform.api.registerPlatformAccessories("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", [SystemAccessory]);
   }
   return SystemAccessory;
 }
