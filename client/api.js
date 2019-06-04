@@ -39,7 +39,7 @@ module.exports = class API {
       3:'panic_button',*/
       4:'MotionSensor',
       5:'ContactSensor',
-      /*6:'glass_break',*/
+      6:'GlassBreakSensor',
       7:'CarbonMonoxideSensor',
       8:'SmokeSensor',
       9:'LeakSensor',
@@ -53,7 +53,7 @@ module.exports = class API {
       'panic_button': 3,*/
       'MotionSensor': 4,
       'ContactSensor': 5,
-      /*'glass_break': 6,*/
+      'GlassBreakSensor': 6,
       'CarbonMonoxideSensor': 7,
       'SmokeSensor': 8,
       'LeakSensor': 9,
