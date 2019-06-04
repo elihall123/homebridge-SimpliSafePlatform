@@ -1,23 +1,50 @@
 {
-  "name": "homebridge-simplisafeplatform",
-  "version": "1.0.7",
+  "_from": "homebridge-simplisafeplatform",
+  "_id": "homebridge-simplisafeplatform@1.0.10",
+  "_inBundle": false,
+  "_integrity": "sha512-MTl7mTQ59QCMnle2T1/FQesqEbJ0Cc+eJzkjZePRmykORstwZZD+tTyhs0caQzepSVlvxBNTMQJKUZa5IJQiBA==",
+  "_location": "/homebridge-simplisafeplatform",
+  "_phantomChildren": {},
+  "_requested": {
+    "type": "tag",
+    "registry": true,
+    "raw": "homebridge-simplisafeplatform",
+    "name": "homebridge-simplisafeplatform",
+    "escapedName": "homebridge-simplisafeplatform",
+    "rawSpec": "",
+    "saveSpec": null,
+    "fetchSpec": "latest"
+  },
+  "_requiredBy": [
+    "#USER"
+  ],
+  "_resolved": "https://registry.npmjs.org/homebridge-simplisafeplatform/-/homebridge-simplisafeplatform-1.0.7.tgz",
+  "_shasum": "c8ea3b5e0d95297778a30d5545f2eb3176636d49",
+  "_spec": "homebridge-simplisafeplatform",
+  "_where": "C:\\Users\\User",
+  "author": {
+    "name": "Ben Wells"
+  },
+  "bugs": {
+    "url": "https://github.com/graanco/homebridge-SimpliSafePlatform/issues"
+  },
+  "bundleDependencies": false,
+  "deprecated": false,
   "description": "SimpliSafe homebridge plugin with Sensors",
+  "engines": {
+    "homebridge": ">=0.2.5",
+    "node": ">=4.3.2"
+  },
+  "homepage": "https://github.com/graanco/homebridge-SimpliSafePlatform#readme",
+  "keywords": [
+    "homebridge-plugin"
+  ],
+  "license": "Apache-2.0",
   "main": "index.js",
+  "name": "homebridge-simplisafeplatform",
   "repository": {
     "type": "git",
     "url": "git://github.com/graanco/homebridge-SimpliSafePlatform.git"
   },
-  "keywords": [
-    "homebridge-plugin"
-  ],
-  "author": "Ben Wells",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/graanco/homebridge-SimpliSafePlatform/issues"
-  },
-  "engines": {
-    "node": ">=4.3.2",
-    "homebridge": ">=0.2.5"
-  },
-  "homepage": "https://github.com/graanco/homebridge-SimpliSafePlatform#readme"
+  "version": "1.0.10"
 }
