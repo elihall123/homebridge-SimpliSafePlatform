@@ -1,4 +1,4 @@
-//homebridge-platform-simplisafe
+//homebridge-simplisafeplatform
 var API = require('./client/api.js');
 
 var Accessory, Service, Characteristic, UUIDGen;
@@ -49,7 +49,7 @@ SimpliSafe.prototype.updateSensors = function(cached = true){
       system[platform.config.SerialNumber] = {'type': ss.SensorTypes.SecuritySystem, 'serial': platform.config.SerialNumber, 'name': 'SimpliSafe Alarm System'}
       Object.keys(system).forEach(sensor=> {
         if (ss.sysVersion == 3) {
-          if (![ss.SensorTypes.CarbonMonoxideSensor, ss.SensorTypes.ContactSensor, ss.SensorTypes.LeakSensor, ss.SensorTypes.MotionSensor, ss.SensorTypes.SecuritySystem, ss.SensorTypes.SmokeSensor, ss.SensorTypes.TemperatureSensor].includes(ss.sensors[sensor].type)) return;
+          if (![ss.SensorTypes.CarbonMonoxideSensor, ss.SensorTypes.ContactSensor, ss.SensorTypes.GlassBreakSensor, ss.SensorTypes.LeakSensor, ss.SensorTypes.MotionSensor, ss.SensorTypes.SecuritySystem, ss.SensorTypes.SmokeSensor, ss.SensorTypes.TemperatureSensor].includes(ss.sensors[sensor].type)) return;
           platform.getSensorsServices(sensor, platform.getAccessory(sensor));
         } else {
           if (![ss.SensorTypes.ContactSensor, ss.SensorTypes.SecuritySystem, ss.SensorTypes.TemperatureSensor].includes(ss.sensors[sensor].type)) return;
@@ -73,7 +73,7 @@ SimpliSafe.prototype.getAccessory = function(sensor){
   //Not found create a new one;
 
   if (!SystemAccessory) {
-    platform.log('Found new sensor', sensor, ss.sensors[sensor].name);
+    platform.log('Found new sensor', ss.SensorTypes[ss.sensors[sensor].type], sensor, ss.sensors[sensor].name);
     SystemAccessory = new Accessory(ss.SensorTypes[ss.sensors[sensor].type] + ' ' + sensor.toString(), UUIDGen.generate(ss.SensorTypes[ss.sensors[sensor].type] + ' ' + sensor));
     SystemAccessory.context.SerialNumber = sensor;
 
@@ -94,14 +94,14 @@ SimpliSafe.prototype.getSensorsServices = function(sensor, accessory){
   switch (ss.sensors[sensor].type) {
     case ss.SensorTypes.CarbonMonoxideSensor:
       if (!accessory.getService(Service.CarbonMonoxideSensor)) {
-        accessory.addService(Service.CarbonMonoxideSensor, 'CO2 Detector');
+        accessory.addService(Service.CarbonMonoxideSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
         accessory.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
       };
       accessory.getService(Service.CarbonMonoxideSensor).getCharacteristic(Characteristic.CarbonMonoxideDetected).updateValue(!ss.sensors[sensor]['status']['triggered'] ? false: true);
       break;
     case ss.SensorTypes.ContactSensor:
       if (!accessory.getService(Service.ContactSensor)) {
-        accessory.addService(Service.ContactSensor, 'Entry');
+        accessory.addService(Service.ContactSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
         accessory.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
       };
       if (ss.sensors[sensor].entryStatus == 'closed') {
@@ -112,14 +112,15 @@ SimpliSafe.prototype.getSensorsServices = function(sensor, accessory){
       break;
     case ss.SensorTypes.LeakSensor:
         if (!accessory.getService(Service.LeakSensor)) {
-          accessory.addService(Service.LeakSensor, 'Leak Detector');
+          accessory.addService(Service.LeakSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
           accessory.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
         };
         accessory.getService(Service.LeakSensor).getCharacteristic(Characteristic.LeakDetected).updateValue(!ss.sensors[sensor]['status']['triggered'] ? false: true);
         break;
+    case ss.SensorTypes.GlassBreakSensor:
     case ss.SensorTypes.MotionSensor:
       if (!accessory.getService(Service.MotionSensor)) {
-        accessory.addService(Service.MotionSensor, 'Motion Detector');
+        accessory.addService(Service.MotionSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
         accessory.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
       };
       accessory.getService(Service.MotionSensor).getCharacteristic(Characteristic.MotionDetected).updateValue(!ss.sensors[sensor]['status']['triggered'] ? false: true);
@@ -146,14 +147,14 @@ SimpliSafe.prototype.getSensorsServices = function(sensor, accessory){
       break;
     case ss.SensorTypes.SmokeSensor:
       if (!accessory.getService(Service.SmokeSensor)) {
-        accessory.addService(Service.SmokeSensor, 'Smoke Detector');
+        accessory.addService(Service.SmokeSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
         accessory.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
       };
       accessory.getService(Service.SmokeSensor).getCharacteristic(Characteristic.SmokeDetected).updateValue(!ss.sensors[sensor]['status']['triggered'] ? false: true);
       break;
     case ss.SensorTypes.TemperatureSensor:
       if (!accessory.getService(Service.TemperatureSensor)) {
-        accessory.addService(Service.TemperatureSensor, 'Temperature Sensor');
+        accessory.addService(Service.TemperatureSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
         accessory.getService(Service.AccessoryInformation).setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
       };
       accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue((ss.sensors[sensor].temp-32) * 5/9);
