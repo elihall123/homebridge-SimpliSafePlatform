@@ -142,6 +142,8 @@ module.exports = class API {
         endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
         params:{'forceUpdate': cached.toString().toLowerCase()}
       })
+      //Check for a successful refresh on sensors --- on 409 send old data
+      if (!parsedBody.success) return self.sensors;
       for (var sensor_data of parsedBody.sensors) {
           self.sensors[sensor_data['serial']] = sensor_data;
           if (self.sensors[sensor_data['serial']].type == self.SensorTypes['ContactSensor']) {
@@ -157,11 +159,11 @@ module.exports = class API {
         endpoint: 'subscriptions/' + self.subId + '/settings',
         params:{'settingsType': 'all', 'cached': cached.toString().toLowerCase()}
       })
+      //Check for a successful refresh on sensors --- on 409 send old data
+        if (!parsedBody.success) return self.sensors;
         for (var sensor_data of parsedBody.settings.sensors) {
           if (!sensor_data['serial']) break;
             if (self.sensors[sensor_data['serial']].type == self.SensorTypes['ContactSensor']) {
-              //self.sensors[sensor_data['serial']] = {...sensor_data, 'status' : '{ triggered :' sensor_data.entryStatus ? 'true' : 'false' + ' }' };
-              console.log(sensor_data)
               self.sensors[sensor_data['serial']] = sensor_data;
             } else {
               self.sensors[sensor_data['serial']] = sensor_data;
