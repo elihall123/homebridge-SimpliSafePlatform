@@ -23,9 +23,10 @@ var _email;
 
 module.exports = class API {
   //Class SimpliSafe API
-  constructor(SerialNumber) {
+  constructor(SerialNumber, email) {
     //Initialize.
     //this.refresh_token_dirty = false;
+    _email = email;
     this.serial = SerialNumber;
     this.user_id;
     this._refresh_token = '';
@@ -63,12 +64,11 @@ module.exports = class API {
     };
   };
 
-  async login_via_credentials(email, password){
+  async login_via_credentials(password){
   //Create an API object from a email address and password.
-    _email = email;
     await this._authenticate({
            'grant_type': 'password',
-           'username': email,
+           'username': _email,
            'password': password,
     });
     await this._get_user_ID();
@@ -109,7 +109,7 @@ module.exports = class API {
     await this._authenticate({
         'grant_type': 'refresh_token',
         'username': _email,
-        'refresh_token': refresh_token,
+        'refresh_token': refresh_token
     })
     this._actively_refreshing = false;
   };//End of function _refresh_access_token
@@ -154,7 +154,7 @@ module.exports = class API {
       }
         return self.sensors;
     } else {
-    var parsedBody = await self.request({
+      var parsedBody = await self.request({
         method:'GET',
         endpoint: 'subscriptions/' + self.subId + '/settings',
         params:{'settingsType': 'all', 'cached': cached.toString().toLowerCase()}
@@ -163,7 +163,7 @@ module.exports = class API {
         if (!parsedBody.success) return self.sensors;
         for (var sensor_data of parsedBody.settings.sensors) {
           if (!sensor_data['serial']) break;
-            if (self.sensors[sensor_data['serial']].type == self.SensorTypes['ContactSensor']) {
+            if (self.sensors[sensor_data['serial'].type] == self.SensorTypes['ContactSensor']) {
               self.sensors[sensor_data['serial']] = sensor_data;
             } else {
               self.sensors[sensor_data['serial']] = sensor_data;
