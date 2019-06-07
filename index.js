@@ -1,13 +1,14 @@
-//homebridge-simplisafeplatform
+//homebridge-platform-simplisafe
 var API = require('./client/api.js');
 
-var Accessory, Service, Characteristic, UUIDGen;
+var Accessory, Service, Characteristic, UUIDGen, User;
 
 module.exports = function(homebridge) {
   Accessory = homebridge.platformAccessory;
   Service = homebridge.hap.Service;
   Characteristic = homebridge.hap.Characteristic;
   UUIDGen = homebridge.hap.uuid;
+  User = homebridge.user;
   homebridge.registerPlatform("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", SimpliSafe, true);
 }
 
@@ -19,17 +20,24 @@ function SimpliSafe(log, config, api) {
   platform.config = config;
   platform.accessories = [];
   var ssClient = new API(log);
-  ss = new API(config.SerialNumber);
+  ss = new API(config.SerialNumber, config.username);
 
   if (api) {
     platform.api = api;
     platform.api.on('didFinishLaunching', function() {
-      ss.login_via_credentials(config.username, config.password)
-      .then(function(){
-        return platform.updateSensors(false);
-      });
-      platform.log("Up and monitoring.");
 
+      if (platform.config.password){
+        ss.login_via_credentials(config.password)
+        .then(function(){
+          return platform.updateSensors(false);
+        });
+      } else {
+        ss.login_via_token(config.refresh_token)
+        .then(function(){
+          return platform.updateSensors(false);
+        });
+      }
+      platform.log("Up and monitoring.");
       setInterval(
         function(){
             platform.updateSensors();
@@ -42,6 +50,23 @@ function SimpliSafe(log, config, api) {
 
 SimpliSafe.prototype.updateSensors = function(cached = true){
   var platform = this;
+
+  if (ss._refresh_token) {
+    if (platform.config.password) {
+      var fs = require('fs');
+      var cfg = JSON.parse(fs.readFileSync(User.configPath()));
+      var nPlatforms=[];
+      cfg.platforms.forEach(pForm=>{
+        if (pForm.platform == 'homebridge-simplisafeplatform') {
+          delete pForm.password;
+          pForm.refresh_token = ss._refresh_token;
+        }
+        nPlatforms.push(pForm);
+      })
+      cfg.platforms = nPlatforms;
+      fs.writeFileSync(User.configPath(), JSON.stringify(cfg, null, 4));
+    }
+  }
 
   return ss.get_Sensors(cached)
     .then(function () {
