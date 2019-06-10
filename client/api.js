@@ -1,7 +1,6 @@
 var websession = require('https');
+var vm = require('vm');
 
-const URL_HOSTNAME = 'api.simplisafe.com';
-const URL_BASE = 'https://api.simplisafe.com/v1';
 const DEFAULT_AUTH_USERNAME = '.2074.0.0.com.simplisafe.mobile';
 const DEFAULT_USER_AGENT = 'SimpliSafe/2105 CFNetwork/902.2 Darwin/17.7.0';
 
@@ -25,14 +24,15 @@ module.exports = class API {
   //Class SimpliSafe API
   constructor(SerialNumber, email) {
     //Initialize.
-    //this.refresh_token_dirty = false;
+    var self = this;
     _email = email;
-    this.serial = SerialNumber;
-    this.user_id;
-    this._refresh_token = '';
-    this.sensors = {};
-    this._actively_refreshing = false;
-    this.SensorTypes = {
+    self.refresh_token_dirty = false;
+    self.serial = SerialNumber;
+    self.user_id;
+    self._refresh_token = '';
+    self.sensors = {};
+    self._actively_refreshing = false;
+    self.SensorTypes = {
       /*Commented out sensors not used by Homebridge and yes I know the siren could be a speaker*/
       0:'SecuritySystem',
       /*1:'keypad',
@@ -63,6 +63,17 @@ module.exports = class API {
       'unknown': 99*/
     };
   };
+
+  async apiconfig() {
+    var self = this;
+    var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'})
+    resp = resp.replace('})(window);', 'return g;});')
+                .replace('var a=', 'var a=g.')
+                .replace(';', '');
+    let APICFGS = vm.runInThisContext(resp);
+    APICFGS(self);
+  }
+
 
   async login_via_credentials(password){
   //Create an API object from a email address and password.
@@ -154,7 +165,7 @@ module.exports = class API {
       }
         return self.sensors;
     } else {
-      var parsedBody = await self.request({
+    var parsedBody = await self.request({
         method:'GET',
         endpoint: 'subscriptions/' + self.subId + '/settings',
         params:{'settingsType': 'all', 'cached': cached.toString().toLowerCase()}
@@ -174,8 +185,7 @@ module.exports = class API {
 
   async get_Alarm_State() {
     var self = this;
-    var state = await self.get_system();
-    return state;
+    return await self.get_system();
   };//End of function get_Alarm_State
 
   async set_Alarm_State(value) {
@@ -195,12 +205,16 @@ module.exports = class API {
   };//End of function set_Alarm_State
 
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
+    var self = this;
+    if (!self.simplisafe) await self.apiconfig();
 
     if (_access_token_expire && Date.now() >= _access_token_expire && !this._actively_refreshing){
             this._actively_refreshing = true;
             await this._refresh_access_token(this._refresh_token)
     }
-    var url = new URL(URL_BASE + '/' + endpoint);
+
+    var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
+
     if (params){
       Object.keys(params).forEach(item=> {
           url.searchParams.append(item.toString(), params[item]);
@@ -219,11 +233,25 @@ module.exports = class API {
       method: method,
       headers: headers
     }
+    return webResponse(url, options, data);
+  };//End of function Request
 
-    return new Promise((resolve, reject) => {
-      const req = websession.request(url.href, options, (res) => {
-        res.setEncoding('utf8');
-        var body='';
+};//end of Class API
+
+async function webResponse(url, options, data){
+  return new Promise((resolve, reject) => {
+    const req = websession.request(url.href, options, (res) => {
+      if (res.headers['content-type'].indexOf('utf8') > -1) res.setEncoding('utf8');
+      var body='';
+      if (res.headers['content-encoding'] && res.headers['content-encoding'].indexOf('gzip') > -1) {
+        var zlib = require("zlib");
+        var gunzip = zlib.createGunzip();
+        res.pipe(gunzip);
+
+        gunzip.on('data', function(data) {
+          resolve (data.toString());
+        });
+      } else {
         res.on('data', (chunk) => { body += chunk;}) ;
         res.on('end', () => {
           if (typeof res.headers['content-type']!=='undefined' && res.headers['content-type'].indexOf('application/json') > -1) {
@@ -232,15 +260,14 @@ module.exports = class API {
             resolve(body);
           }
         });
-      });
-
-      req.on('error', (e) => {
-        console.error(`problem with request: ${e.message}`);
-      });
-
-      if (data) req.write(JSON.stringify(data));
-      req.end();
+      };
     });
-  };//End of function Request
 
-};//end of Class API
+    req.on('error', (e) => {
+      console.error(`problem with request: ${e.message}`);
+    });
+
+    if (data) req.write(JSON.stringify(data));
+    req.end();
+  });
+}; //end of function webResponse
