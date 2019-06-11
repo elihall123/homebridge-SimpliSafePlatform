@@ -43,6 +43,33 @@ To use this, you must have a working Homebridge server running in your network.
 
 - The refresh timer is the amount of time in seconds for the system to updates its current status. It will scan for the system and its sensors. Keep the setting around 60 seconds for systems cellular only versions and don't go much lower than 10 seconds for the wifi ones.
 
+- To clear the cache of accessories. Place in reset=true as an example:
+
+## Configuration
+    {
+        "bridge": {
+            "name": "Homebridge",
+            "username": "CC:22:3D:E3:CE:30",
+            "port": 51826,
+            "pin": "031-45-154"
+        },
+
+        "accessories": [],
+        "platforms": [
+          {
+            "platform" : "homebridge-SimpliSafePlatform",
+            "name" : "SimpliSafe Client",
+            "SerialNumber": "system serial",
+            "username" : "email",
+            "password" : "password",
+            "refresh_timer": "60",
+            "reset": true
+          }
+        ]
+
+    }
+
+
 This will only work for one system at one location. So in order to do multiple systems each location would need to run homebridge and this platform plugin.
 
 # Major Credit goes to chowielin, nfarina, tobycth3 and greencoder.
