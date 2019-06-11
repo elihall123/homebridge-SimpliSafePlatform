@@ -25,6 +25,23 @@ class SimpliSafe {
     if (api) {
       platform.api = api;
       platform.api.on('didFinishLaunching', function() {
+          if (platform.config.reset) {
+          var fs = require('fs');
+          var cfg = JSON.parse(fs.readFileSync(User.configPath()));
+          var nPlatforms=[];
+          cfg.platforms.forEach(pForm=>{
+            if (pForm.platform == 'homebridge-simplisafeplatform') {
+              platform.log('Clearing cache of SimpliSafe accesories');
+              delete pForm.reset;
+              this.api.unregisterPlatformAccessories("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", platform.accessories);
+              platform.accessories = {};
+            }
+            nPlatforms.push(pForm);
+          })
+          cfg.platforms = nPlatforms;
+          fs.writeFileSync(User.configPath(), JSON.stringify(cfg, null, 4));
+        }
+
         if (platform.config.password){
           ss.login_via_credentials(config.password)
           .then(function(){
@@ -39,22 +56,6 @@ class SimpliSafe {
 
         platform.log("Up and monitoring.");
 
-        if (ss._refresh_token) {
-          if (platform.config.password) {
-            var fs = require('fs');
-            var cfg = JSON.parse(fs.readFileSync(User.configPath()));
-            var nPlatforms=[];
-            cfg.platforms.forEach(pForm=>{
-              if (pForm.platform == 'homebridge-simplisafeplatform') {
-                delete pForm.password;
-                pForm.refresh_token = ss._refresh_token;
-              }
-              nPlatforms.push(pForm);
-            })
-            cfg.platforms = nPlatforms;
-            fs.writeFileSync(User.configPath(), JSON.stringify(cfg, null, 4));
-          }
-        };
       }.bind(platform));
     };
   };//End of SimpliSafe Function
@@ -84,6 +85,27 @@ class SimpliSafe {
         platform.log(err);
       });
   };// End of initPlatform Function
+
+  tokenCheck(){
+    var platform = this;
+    if (ss._refresh_token) {
+      if (platform.config.password) {
+        var fs = require('fs');
+        var cfg = JSON.parse(fs.readFileSync(User.configPath()));
+        var nPlatforms=[];
+        cfg.platforms.forEach(pForm=>{
+          if (pForm.platform == 'homebridge-simplisafeplatform') {
+            platform.log('Updating configuration file for token')
+            delete pForm.password;
+            pForm.refresh_token = ss._refresh_token;
+          }
+          nPlatforms.push(pForm);
+        })
+        cfg.platforms = nPlatforms;
+        fs.writeFileSync(User.configPath(), JSON.stringify(cfg, null, 4));
+      }
+    };
+  }//End of Toekn Check
 
   createAccessory(sensor) {
     var platform = this;
@@ -223,8 +245,8 @@ class SimpliSafe {
 
   async getState(SerialNumber, callback) {
     var platform = this;
-
     if (!ss.refreshing_Sensors && ss.refreshing_Sensors_Timer + (platform.config.refresh_timer * 1000) <= Date.now())  {
+      if (!platform.config.refresh_token) platform.tokenCheck();
       platform.log('Refreshing Sensor Data');
       await ss.get_Sensors(false);
     }
@@ -288,8 +310,3 @@ class SimpliSafe {
   };// End of Function setAlarmState
 
 }; // End Of Class
-// Sample function to show how developer can remove accessory dynamically from outside event
-// Need to look up Accessoy Removal process....
-//  this.api.unregisterPlatformAccessories("homebridge-platform-simplisafe", "homebridge-platform-simplisafe", this.accessories);
-
-//  this.accessories = [];
