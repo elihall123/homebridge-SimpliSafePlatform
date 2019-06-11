@@ -32,6 +32,8 @@ module.exports = class API {
     self._refresh_token = '';
     self.sensors = {};
     self._actively_refreshing = false;
+    self.refreshing_Sensors_Timer = Date.now()-3600000; //Make it smaller for first time refresh
+    self.refreshing_Sensors = false;
     self.SensorTypes = {
       /*Commented out sensors not used by Homebridge and yes I know the siren could be a speaker*/
       0:'SecuritySystem',
@@ -147,6 +149,7 @@ module.exports = class API {
 
   async get_Sensors(cached = true) {
   var self = this;
+  self.refreshing_Sensors = true;
     if (self.sysVersion==3) {
       var parsedBody = await self.request({
         method:'GET',
@@ -157,7 +160,7 @@ module.exports = class API {
       if (!parsedBody.success) return self.sensors;
       for (var sensor_data of parsedBody.sensors) {
           self.sensors[sensor_data['serial']] = sensor_data;
-          if (self.sensors[sensor_data['serial']].type == self.SensorTypes['ContactSensor']) {
+          if (sensor_data.type == self.SensorTypes['ContactSensor']) {
             self.sensors[sensor_data['serial']] = {...sensor_data, 'entryStatus' : sensor_data.status.triggered ? 'open' : 'closed'};
           } else {
             self.sensors[sensor_data['serial']] = sensor_data;
@@ -174,13 +177,15 @@ module.exports = class API {
         if (!parsedBody.success) return self.sensors;
         for (var sensor_data of parsedBody.settings.sensors) {
           if (!sensor_data['serial']) break;
-            if (self.sensors[sensor_data['serial'].type] == self.SensorTypes['ContactSensor']) {
-              self.sensors[sensor_data['serial']] = sensor_data;
+            if (sensor_data.type == self.SensorTypes['ContactSensor']) {
+              self.sensors[sensor_data['serial']] = {...sensor_data, 'status' : { triggered : sensor_data.entryStatus=='open' }};
             } else {
               self.sensors[sensor_data['serial']] = sensor_data;
             }
         }
-    }
+    };
+    self.refreshing_Sensors_Timer = Date.now();
+    self.refreshing_Sensors = false;
   };//End of function get_Sensors
 
   async get_Alarm_State() {
@@ -233,15 +238,15 @@ module.exports = class API {
       method: method,
       headers: headers
     }
-    return webResponse(url, options, data);
+    return await webResponse(url, options, data);
   };//End of function Request
 
 };//end of Class API
 
 async function webResponse(url, options, data){
-  return new Promise((resolve, reject) => {
-    const req = websession.request(url.href, options, (res) => {
-      if (res.headers['content-type'].indexOf('utf8') > -1) res.setEncoding('utf8');
+  return new Promise(async (resolve, reject) => {
+    const req = await websession.request(url.href, options, (res) => {
+      //if (res.headers['content-type'].indexOf('utf8') > -1) res.setEncoding('utf8');
       var body='';
       if (res.headers['content-encoding'] && res.headers['content-encoding'].indexOf('gzip') > -1) {
         var zlib = require("zlib");
