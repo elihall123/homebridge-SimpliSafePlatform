@@ -1,6 +1,6 @@
 {
   "author": {
-    "name": "Ben Wells"
+    "name": "Benjamin Wells"
   },
   "bugs": {
     "url": "https://github.com/graanco/homebridge-SimpliSafePlatform/issues"
@@ -23,5 +23,5 @@
     "type": "git",
     "url": "git://github.com/graanco/homebridge-SimpliSafePlatform.git"
   },
-  "version": "1.0.16"
+  "version": "1.0.18"
 }
