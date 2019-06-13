@@ -32,7 +32,6 @@ module.exports = class API {
     self._refresh_token = '';
     self.sensors = {};
     self._actively_refreshing = false;
-    self.refreshing_Sensors_Timer = Date.now()-3600000; //Make it smaller for first time refresh
     self.refreshing_Sensors = false;
     self.SensorTypes = {
       /*Commented out sensors not used by Homebridge and yes I know the siren could be a speaker*/
@@ -64,7 +63,20 @@ module.exports = class API {
       /*'siren': 13,
       'unknown': 99*/
     };
-  };
+    new Promise(async (resolve, reject) => {
+      try {
+        var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'})
+        resp = resp.replace('})(window);', 'return g;});')
+                .replace('var a=', 'var a=g.')
+                .replace(';', '');
+                let APICFGS = vm.runInThisContext(resp);
+                APICFGS(self);
+      } catch (ex) {
+        return reject(ex);
+      }
+      resolve(self);
+    });
+  };//end of constructor
 
   async apiconfig() {
     var self = this;
@@ -86,6 +98,7 @@ module.exports = class API {
     });
     await this._get_user_ID();
     await this.get_system();
+    await this.get_Sensors();
     return;
   };//end of function login_via_credentials
 
@@ -94,6 +107,7 @@ module.exports = class API {
     await this._refresh_access_token(refresh_token);
     await this._get_user_ID();
     await this.get_system();
+    await this.get_Sensors();
     return;
   };//end of function login_via_token
 
@@ -130,14 +144,19 @@ module.exports = class API {
   async get_system(){
     //Get systems associated to this account.
     var self = this;
-    var subscription_resp = await this.get_subscription_data();
-    if (!subscription_resp) throw('Missing Sytem Data');
-    for (var system_data of subscription_resp.subscriptions){
-      if (system_data.location.system.serial === self.serial) {
-          self.subId = system_data.sid;
-          self.sysVersion = system_data.location.system.version;
-          return system_data.location.system;
-      }
+    try{
+      var subscription_resp = await this.get_subscription_data();
+      if (!subscription_resp) throw ('Missing Sytem Data');
+      for (var system_data of subscription_resp.subscriptions){
+        if (system_data.location.system.serial === self.serial) {
+            self.subId = system_data.sid;
+            self.sysVersion = system_data.location.system.version;
+            return system_data.location.system;
+          }
+      };
+    } catch (e) {
+            this.log(e);
+            return false;
     };
   };//End of function get_system
 
@@ -148,13 +167,13 @@ module.exports = class API {
   };//End of function get_subscription_data
 
   async get_Sensors(cached = true) {
-  var self = this;
-  self.refreshing_Sensors = true;
+    var self = this;
+    self.refreshing_Sensors = true;
     if (self.sysVersion==3) {
       var parsedBody = await self.request({
         method:'GET',
         endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
-        params:{'forceUpdate': cached.toString().toLowerCase()}
+        params:{'forceUpdate': (cached==false).toString().toLowerCase()} //false = coming from cache
       })
       //Check for a successful refresh on sensors --- on 409 send old data
       if (!parsedBody.success) return self.sensors;
@@ -166,25 +185,23 @@ module.exports = class API {
             self.sensors[sensor_data['serial']] = sensor_data;
           }
       }
-        return self.sensors;
     } else {
-    var parsedBody = await self.request({
-        method:'GET',
-        endpoint: 'subscriptions/' + self.subId + '/settings',
-        params:{'settingsType': 'all', 'cached': cached.toString().toLowerCase()}
+      var parsedBody = await self.request({
+          method:'GET',
+          endpoint: 'subscriptions/' + self.subId + '/settings',
+          params:{'settingsType': 'all', 'cached': cached.toString().toLowerCase()} //true = coming from cache
       })
-      //Check for a successful refresh on sensors --- on 409 send old data
-        if (!parsedBody.success) return self.sensors;
-        for (var sensor_data of parsedBody.settings.sensors) {
-          if (!sensor_data['serial']) break;
-            if (sensor_data.type == self.SensorTypes['ContactSensor']) {
-              self.sensors[sensor_data['serial']] = {...sensor_data, 'status' : { triggered : sensor_data.entryStatus=='open' }};
-            } else {
-              self.sensors[sensor_data['serial']] = sensor_data;
-            }
-        }
+          //Check for a successful refresh on sensors --- on 409 send old data
+      if (!parsedBody.success) return self.sensors;
+      for (var sensor_data of parsedBody.settings.sensors) {
+        if (!sensor_data['serial']) break;
+          if (sensor_data.type == self.SensorTypes['ContactSensor']) {
+            self.sensors[sensor_data['serial']] = {...sensor_data, 'status' : { triggered : sensor_data.entryStatus=='open' }};
+          } else {
+            self.sensors[sensor_data['serial']] = sensor_data;
+          }
+      }
     };
-    self.refreshing_Sensors_Timer = Date.now();
     self.refreshing_Sensors = false;
   };//End of function get_Sensors
 
