@@ -121,7 +121,7 @@ module.exports = class API {
     });
 
     _access_token = token_resp.access_token;
-    _access_token_expire = new Date(Date.now() + ((token_resp.expires_in-60) * 1000));
+    _access_token_expire = Date.now() + token_resp.expires_in-1;
     _access_token_type = token_resp.token_type;
     this._refresh_token = token_resp.refresh_token;
   };//End of function _authenticate
@@ -146,7 +146,7 @@ module.exports = class API {
     var self = this;
     try{
       var subscription_resp = await this.get_subscription_data();
-      if (!subscription_resp) throw ('Missing Sytem Data');
+      if (subscription_resp=='Unauthorized') throw('Missing Sytem Data');
       for (var system_data of subscription_resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
             self.subId = system_data.sid;
@@ -155,7 +155,7 @@ module.exports = class API {
           }
       };
     } catch (e) {
-            this.log(e);
+            console.log(e);
             return false;
     };
   };//End of function get_system
@@ -229,10 +229,10 @@ module.exports = class API {
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
     if (!self.simplisafe) await self.apiconfig();
-
-    if (_access_token_expire && Date.now() >= _access_token_expire && !this._actively_refreshing){
+    if (_access_token_expire && Date.now() >= _access_token_expire && this._actively_refreshing == false){
             this._actively_refreshing = true;
-            await this._refresh_access_token(this._refresh_token)
+            console.log('refreshing token');
+            await this._refresh_access_token(this._refresh_token);
     }
 
     var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
