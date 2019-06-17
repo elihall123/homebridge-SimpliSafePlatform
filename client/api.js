@@ -121,7 +121,7 @@ module.exports = class API {
     });
 
     _access_token = token_resp.access_token;
-    _access_token_expire = Date.now() + token_resp.expires_in-1;
+    _access_token_expire = Date.now() + ((token_resp.expires_in-1)*1000);
     _access_token_type = token_resp.token_type;
     this._refresh_token = token_resp.refresh_token;
   };//End of function _authenticate
