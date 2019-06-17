@@ -9,8 +9,8 @@
   "deprecated": false,
   "description": "SimpliSafe homebridge plugin with Sensors",
   "engines": {
-    "homebridge": ">=0.2.5",
-    "node": ">=4.3.2"
+    "homebridge": ">=0.4.5",
+    "node": ">=12.4.0"
   },
   "homepage": "https://github.com/graanco/homebridge-SimpliSafePlatform#readme",
   "keywords": [
@@ -23,5 +23,23 @@
     "type": "git",
     "url": "git://github.com/graanco/homebridge-SimpliSafePlatform.git"
   },
-  "version": "1.0.18"
+  "version": "1.0.20",
+  "warnings": [
+    {
+      "code": "ENOTSUP",
+      "required": {
+        "homebridge": ">=0.4.5",
+        "node": ">=12.4.0"
+      },
+      "pkgid": "homebridge-simplisafeplatform@1.0.19"
+    },
+    {
+      "code": "ENOTSUP",
+      "required": {
+        "homebridge": ">=0.4.5",
+        "node": ">=12.4.0"
+      },
+      "pkgid": "homebridge-simplisafeplatform@1.0.19"
+    }
+  ]
 }
