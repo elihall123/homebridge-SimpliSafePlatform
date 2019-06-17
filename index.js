@@ -165,7 +165,7 @@ class SimpliSafe {
           accessory.getService(Service.CarbonMonoxideSensor)
             .getCharacteristic(Characteristic.CarbonMonoxideDetected)
             .on('get', async (callback)=>{
-              await platform.getState(accesory.displayName, callback);
+              await platform.getState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
             });
       } else if(accessory.getService(Service.ContactSensor)) {
           accessory.getService(Service.ContactSensor)
@@ -174,7 +174,7 @@ class SimpliSafe {
               await platform.getState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback)
             });
       } else if(accessory.getService(Service.LeakSensor)) {
-          accessory.getService(Service.ContactSensor)
+          accessory.getService(Service.LeakSensor)
             .getCharacteristic(Characteristic.LeakDetected)
             .on('get', async (callback)=>{
               await platform.getState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback)
@@ -183,7 +183,7 @@ class SimpliSafe {
           accessory.getService(Service.MotionSensor)
             .getCharacteristic(Characteristic.MotionDetected)
             .on('get', async (callback)=>{
-                await platform.getState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
+              await platform.getState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
             });
       } else if (accessory.getService(Service.SecuritySystem)) {
           accessory.getService(Service.SecuritySystem)
@@ -249,7 +249,7 @@ class SimpliSafe {
     var platform = this;
     var count=0; // failout just incase....
     if (!ss.refreshing_Sensors){
-      if ((platform.refreshing_Sensors_Timer + (platform.config.refresh_timer * 1e3)) <= Date.now()) {
+      if ((platform.refreshing_Sensors_Timer + (platform.config.refresh_timer * 1000)) <= Date.now()) {
         platform.log('Refreshing Sensors Data');
         await ss.get_Sensors(false);
         platform.refreshing_Sensors_Timer = Date.now();
@@ -317,8 +317,3 @@ class SimpliSafe {
   };// End of Function setAlarmState
 
 }; // End Of Class
-// Sample function to show how developer can remove accessory dynamically from outside event
-// Need to look up Accessoy Removal process....
-//  this.api.unregisterPlatformAccessories("homebridge-platform-simplisafe", "homebridge-platform-simplisafe", this.accessories);
-
-//  this.accessories = [];
