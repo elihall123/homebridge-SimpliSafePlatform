@@ -231,7 +231,6 @@ module.exports = class API {
     if (!self.simplisafe) await self.apiconfig();
     if (_access_token_expire && Date.now() >= _access_token_expire && this._actively_refreshing == false){
             this._actively_refreshing = true;
-            console.log('refreshing token');
             await this._refresh_access_token(this._refresh_token);
     }
 
