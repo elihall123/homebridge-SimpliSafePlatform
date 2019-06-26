@@ -20,7 +20,7 @@ class SimpliSafe {
     platform.log = log;
     platform.config = config;
     platform.accessories = {};
-    ss = new API(config.SerialNumber, config.username);
+    ss = new API(config.SerialNumber, config.username, log);
     platform.refreshing_Sensors_Timer = 0;
     platform.refreshing_Sensors = false;
 
