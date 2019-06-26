@@ -1,13 +1,14 @@
 var websession = require('https');
+var fs = require('fs');
 var vm = require('vm');
 
-const DEFAULT_AUTH_USERNAME = '.2074.0.0.com.simplisafe.mobile';
-const DEFAULT_USER_AGENT = 'SimpliSafe/2105 CFNetwork/902.2 Darwin/17.7.0';
 
 function BasicAuth(login, password){
   return "Basic " +  Buffer.from(login + ':' + password).toString('base64');
 }
-
+var g = uuid4(),
+    h = "WebAppd";
+    
 function uuid4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -22,9 +23,10 @@ var _email;
 
 module.exports = class API {
   //Class SimpliSafe API
-  constructor(SerialNumber, email) {
+  constructor(SerialNumber, email, log) {
     //Initialize.
     var self = this;
+    self.log = log;
     _email = email;
     self.refresh_token_dirty = false;
     self.serial = SerialNumber;
@@ -63,82 +65,160 @@ module.exports = class API {
       /*'siren': 13,
       'unknown': 99*/
     };
-    new Promise(async (resolve, reject) => {
-      try {
-        var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'})
-        resp = resp.replace('})(window);', 'return g;});')
-                .replace('var a=', 'var a=g.')
-                .replace(';', '');
-                let APICFGS = vm.runInThisContext(resp);
-                APICFGS(self);
-      } catch (ex) {
-        return reject(ex);
-      }
-      resolve(self);
-    });
+
   };//end of constructor
 
   async apiconfig() {
     var self = this;
     var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'})
-    resp = resp.replace('})(window);', 'return g;});')
+    resp = resp.body.replace('})(window);', 'return g;});')
                 .replace('var a=', 'var a=g.')
                 .replace(';', '');
     let APICFGS = vm.runInThisContext(resp);
     APICFGS(self);
   }
 
+  getClientId() {
+    try {
+        var n = [];
+        n.push(g), n.push("1.30.1".replace(/\./g, "-")), n.push(h);
+        var r = n.join(".") + ".simplisafe.com";
+        return r
+    } catch (e) {
+        this.log(e)
+    }
+}
 
+getDeviceId() {
+    try {
+        var n = (new Date, 'useragent="2105 CFNetwork/902.2 Darwin/17.7.0"');
+        n += '; uuid="' + g + '"';
+        var r = h + "; " + n;
+        return r
+    } catch (e) {
+        this.log(e)
+    }
+}
+
+  async websocket(){
+    var self = this;
+    try {
+      var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.min.js'), {METHOD: 'GET'})
+          await fs.writeFileSync('./socket.io.min.js', resp.body, (err) => {
+            if (err) throw err;
+          });
+          var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.js'), {METHOD: 'GET'})
+          await fs.writeFileSync('./socket.io.js', resp.body, (err) => {
+            if (err) throw err;
+          });
+        var m = null, g = [], r = self.simplisafe.webapp, io = require('./socket.io.min.js');
+        fs.unlink('./socket.io.min.js', (err) => {
+          if (err) throw err;
+        });
+        fs.unlink('./socket.io.js', (err) => {
+          if (err) throw err;
+        });
+        m && (m.disconnect(), m = null);
+        var n = r.apiPath + "/user/" + self.user_id;
+        var AWSALB = self.cookie.toString().split(';', 1);
+        var cookie = AWSALB + '; ssOauthAccessExpires=' + _access_token_expire + '; ssOauthAccessToken=' + encodeURIComponent(_access_token) + ';'
+
+        m = io.connect(r.apiHost + n, {
+            query: "ns=" + n + "&accessToken=" + encodeURIComponent(_access_token),
+            resource: "socket.io",
+            reconnection: !0,
+            upgrade: !0,
+            secure: !0,
+            transports: ["websocket"],
+            Cookie: cookie
+        }),
+        m.on("connect", socket => {
+          self.log('Connect', socket);
+        }),
+        m.on("event", self.ssEvent),
+        m.on("hiddenEvent", self.ssHiddenEvent), 
+        m.on('connect_error', function(err){
+          self.log('Connection error:', err, m);
+        }),
+        m.on('connection', socket => {
+          self.log('Connection', socket);
+        }),
+        m.on('disconnect', socket =>{
+          self.log('Disconnect', socket)
+        })
+        //m.send('40' + r.apiPath + '/user/' + self.user_id + '?ns=/v1/user/' + self.user_id +'&accessToken=' + encodeURIComponent(_access_token))
+    } catch (e) {
+        self.log('websocket ',e);
+    }
+  }
+  
+  ssEvent(){
+    var self = this;
+    self.log(e);
+  }
+
+  ssHiddenEvent(){
+    var self = this;
+    self.log(e);
+  }
   async login_via_credentials(password){
   //Create an API object from a email address and password.
-    await this._authenticate({
+    var self = this;
+    await self._authenticate({
            'grant_type': 'password',
            'username': _email,
            'password': password,
+           'device_id' : self.getDeviceId()
     });
-    await this._get_user_ID();
-    await this.get_system();
-    await this.get_Sensors();
+    await self._get_user_ID();
+    await self.get_system();
+    await self.get_Sensors();
+    //self.websocket();
     return;
   };//end of function login_via_credentials
 
   async login_via_token(refresh_token){
     //Create an API object from a refresh token.
-    await this._refresh_access_token(refresh_token);
-    await this._get_user_ID();
-    await this.get_system();
-    await this.get_Sensors();
+    var self = this;
+    await self._refresh_access_token(refresh_token);
+    await self._get_user_ID();
+    await self.get_system();
+    await self.get_Sensors();
+    //self.websocket();
     return;
   };//end of function login_via_token
 
   async _authenticate(payload_data){
     //Request token data...
-    var token_resp = await this.request({
+    var self = this;
+    var resp = await self.request({
       method:'POST',
       endpoint:'api/token',
       data: payload_data,
-      auth: BasicAuth(uuid4() + DEFAULT_AUTH_USERNAME, '')
+      auth: "Basic: " + Buffer.from(self.getClientId() + ':').toString('base64')
     });
 
-    _access_token = token_resp.access_token;
-    _access_token_expire = Date.now() + ((token_resp.expires_in-1)*1000);
-    _access_token_type = token_resp.token_type;
-    this._refresh_token = token_resp.refresh_token;
+    _access_token = resp.access_token;
+    _access_token_expire = Date.now() + ((resp.expires_in)*1000);
+    _access_token_type = resp.token_type;
+    this._refresh_token = resp.refresh_token;
   };//End of function _authenticate
 
   async _get_user_ID (){
-    var auth_check_resp = await this.request({method:'GET',endpoint: 'api/authCheck'})
-    this.user_id = auth_check_resp['userId'];
+    var self = this;
+    var resp = await self.request({method:'GET',endpoint: 'api/authCheck'})
+    this.user_id = resp['userId'];
   };//End of function _getUserId
 
   async _refresh_access_token(refresh_token){
     //Regenerate an access token.
-    await this._authenticate({
+    var self = this;
+    await self._authenticate({
         'grant_type': 'refresh_token',
         'username': _email,
         'refresh_token': refresh_token
     })
-    this._actively_refreshing = false;
+    self._actively_refreshing = false;
   };//End of function _refresh_access_token
 
   async get_system(){
@@ -155,7 +235,7 @@ module.exports = class API {
           }
       };
     } catch (e) {
-            console.log(e);
+            self.log(e);
             return false;
     };
   };//End of function get_system
@@ -246,15 +326,17 @@ module.exports = class API {
 
     headers={
             ...headers,
-            'Content-Type': 'application/json; charset=utf-8',
-            'User-Agent': DEFAULT_USER_AGENT,
+            'Content-Type': 'application/json; charset=utf-8'
     };
 
     var options = {
       method: method,
       headers: headers
     }
-    return await webResponse(url, options, data);
+    var resp = await webResponse(url, options, data);
+    self.cookie = resp.cookie;
+    //self.log(url.href, resp);
+    return resp.body;
   };//End of function Request
 
 };//end of Class API
@@ -262,23 +344,35 @@ module.exports = class API {
 async function webResponse(url, options, data){
   return new Promise(async (resolve, reject) => {
     const req = await websession.request(url.href, options, (res) => {
-      //if (res.headers['content-type'].indexOf('utf8') > -1) res.setEncoding('utf8');
-      var body='';
+      var ret = {};
+      var body = '';
+      ret = {'headers': res.headers}
+      if (res.headers['set-cookie']) ret = {...ret, 'cookie': res.headers['set-cookie']}
       if (res.headers['content-encoding'] && res.headers['content-encoding'].indexOf('gzip') > -1) {
         var zlib = require("zlib");
         var gunzip = zlib.createGunzip();
         res.pipe(gunzip);
 
         gunzip.on('data', function(data) {
-          resolve (data.toString());
+          ret = {...ret,
+                'body': data.toString()
+          }      
+          resolve(ret);
         });
       } else {
+        if (res.headers['content-type'].indexOf('utf-8') > -1) res.setEncoding('utf8');
         res.on('data', (chunk) => { body += chunk;}) ;
         res.on('end', () => {
           if (typeof res.headers['content-type']!=='undefined' && res.headers['content-type'].indexOf('application/json') > -1) {
-            resolve(JSON.parse(body));
+            ret = {...ret,
+                    'body': JSON.parse(body)
+            }
+            resolve(ret);
           } else {
-            resolve(body);
+            ret = {...ret,
+                  'body': body
+            }
+            resolve(ret);
           }
         });
       };
