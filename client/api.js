@@ -6,8 +6,8 @@ var vm = require('vm');
 function BasicAuth(login, password){
   return "Basic " +  Buffer.from(login + ':' + password).toString('base64');
 }
-var g = uuid4(),
-    h = "WebAppd";
+var g = "4df55627-46b2-4e2c-866b-1521b395ded2",
+    h = "WebApp";
     
 function uuid4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -35,6 +35,7 @@ module.exports = class API {
     self.sensors = {};
     self._actively_refreshing = false;
     self.refreshing_Sensors = false;
+    self.cameras = {};
     self.SensorTypes = {
       /*Commented out sensors not used by Homebridge and yes I know the siren could be a speaker*/
       0:'SecuritySystem',
@@ -82,14 +83,13 @@ module.exports = class API {
     try {
         var n = [];
         n.push(g), n.push("1.30.1".replace(/\./g, "-")), n.push(h);
-        var r = n.join(".") + ".simplisafe.com";
-        return r
+        return n.join(".") + ".simplisafe.com";
     } catch (e) {
         this.log(e)
     }
-}
+  }
 
-getDeviceId() {
+  getDeviceId() {
     try {
         var n = (new Date, 'useragent="2105 CFNetwork/902.2 Darwin/17.7.0"');
         n += '; uuid="' + g + '"';
@@ -98,26 +98,26 @@ getDeviceId() {
     } catch (e) {
         this.log(e)
     }
-}
+  }
 
   async websocket(){
     var self = this;
     try {
-      var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.min.js'), {METHOD: 'GET'})
+      /*var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.min.js'), {METHOD: 'GET'})
           await fs.writeFileSync('./socket.io.min.js', resp.body, (err) => {
             if (err) throw err;
           });
           var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.js'), {METHOD: 'GET'})
           await fs.writeFileSync('./socket.io.js', resp.body, (err) => {
             if (err) throw err;
-          });
-        var m = null, g = [], r = self.simplisafe.webapp, io = require('./socket.io.min.js');
-        fs.unlink('./socket.io.min.js', (err) => {
+          });*/
+        var m = null, g = [], r = self.simplisafe.webapp, io = require('socket.io-client');
+        /*fs.unlink('./socket.io.min.js', (err) => {
           if (err) throw err;
         });
         fs.unlink('./socket.io.js', (err) => {
           if (err) throw err;
-        });
+        });*/
         m && (m.disconnect(), m = null);
         var n = r.apiPath + "/user/" + self.user_id;
         var AWSALB = self.cookie.toString().split(';', 1);
@@ -129,8 +129,8 @@ getDeviceId() {
             reconnection: !0,
             upgrade: !0,
             secure: !0,
-            transports: ["websocket"],
-            Cookie: cookie
+            transport: "polling",
+            rejectUnauthorized: false
         }),
         m.on("connect", socket => {
           self.log('Connect', socket);
@@ -144,9 +144,9 @@ getDeviceId() {
           self.log('Connection', socket);
         }),
         m.on('disconnect', socket =>{
-          self.log('Disconnect', socket)
+          self.log('\n\n\n\n Disconnect\n', socket, '\n', m['io'])
         })
-        //m.send('40' + r.apiPath + '/user/' + self.user_id + '?ns=/v1/user/' + self.user_id +'&accessToken=' + encodeURIComponent(_access_token))
+        //m.sendM'40' + r.apiPath + '/user/' + self.user_id + '?ns=/v1/user/' + self.user_id +'&accessToken=' + encodeURIComponent(_access_token))
     } catch (e) {
         self.log('websocket ',e);
     }
@@ -199,7 +199,7 @@ getDeviceId() {
     });
 
     _access_token = resp.access_token;
-    _access_token_expire = Date.now() + ((resp.expires_in)*1000);
+    _access_token_expire = Date.now() + ((resp.expires_in-60)*1000);
     _access_token_type = resp.token_type;
     this._refresh_token = resp.refresh_token;
   };//End of function _authenticate
@@ -225,12 +225,15 @@ getDeviceId() {
     //Get systems associated to this account.
     var self = this;
     try{
-      var subscription_resp = await this.get_subscription_data();
-      if (subscription_resp=='Unauthorized') throw('Missing Sytem Data');
-      for (var system_data of subscription_resp.subscriptions){
+      var resp = await this.get_subscription_data();
+      if (resp === 403) throw('Access Forbidden. Please wait an hour and try again.');
+      for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
             self.subId = system_data.sid;
             self.sysVersion = system_data.location.system.version;
+            for (var camera of system_data.location.system.cameras){
+              self.cameras[camera.uuid] = camera;
+            }
             return system_data.location.system;
           }
       };
@@ -285,6 +288,30 @@ getDeviceId() {
     self.refreshing_Sensors = false;
   };//End of function get_Sensors
 
+  async get_CameraStream(uuid){
+    var self = this;
+    if (!self.simplisafe) await self.apiconfig();
+    if (_access_token_expire && Date.now() >= _access_token_expire && this._actively_refreshing == false){
+            this._actively_refreshing = true;
+            await this._refresh_access_token(this._refresh_token);
+    }
+
+    var url = new URL(self.simplisafe.webapp.mediaHost + self.simplisafe.webapp.mediaPath + '/' + uuid + '/flv');
+
+    headers={
+      Authorization: _access_token_type + ' ' + _access_token,
+      Accept: application/json
+    };
+
+    var options = {
+      method: method,
+      headers: headers
+    }
+    var resp = await webResponse(url, options, data);
+    return resp.body;
+
+  }
+
   async get_Alarm_State() {
     var self = this;
     return await self.get_system();
@@ -335,8 +362,11 @@ getDeviceId() {
     }
     var resp = await webResponse(url, options, data);
     self.cookie = resp.cookie;
-    //self.log(url.href, resp);
-    return resp.body;
+    if (resp.statusCode >= 400) {
+      return resp.statusCode;
+    } else {
+      return resp.body;
+    }
   };//End of function Request
 
 };//end of Class API
@@ -346,7 +376,9 @@ async function webResponse(url, options, data){
     const req = await websession.request(url.href, options, (res) => {
       var ret = {};
       var body = '';
-      ret = {'headers': res.headers}
+      ret = {statusCode: res.statusCode};
+      ret = {...ret,
+              'headers': res.headers}
       if (res.headers['set-cookie']) ret = {...ret, 'cookie': res.headers['set-cookie']}
       if (res.headers['content-encoding'] && res.headers['content-encoding'].indexOf('gzip') > -1) {
         var zlib = require("zlib");
