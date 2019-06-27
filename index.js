@@ -1,5 +1,6 @@
 //homebridge-platform-simplisafe
 var API = require('./client/api.js');
+//var FFMPEG = require('./client/ffmpeg').FFMPEG;
 
 var Accessory, Service, Characteristic, UUIDGen, User;
 
@@ -53,7 +54,7 @@ class SimpliSafe {
               return platform.initPlatform(false);
             });
           });
-        } else {
+        } else if (platform.config.refresh_token) {
           ss.apiconfig()
           .then(function(){
             ss.login_via_token(config.refresh_token)
@@ -61,6 +62,8 @@ class SimpliSafe {
               return platform.initPlatform(false);
             });
           });
+        } else {
+          platform.log('Missing Password')
         };
 
         platform.log("Up and monitoring.");
@@ -72,6 +75,11 @@ class SimpliSafe {
   async initPlatform() {
     var platform = this;
     var system = ss.sensors;
+    //Add in cameras;
+    /*Object.keys(ss.cameras).forEach (camera=>{
+      system[camera.uid] = {'type:': ss.SensorType.Camera, 'serial':camera.uid, 'name': camera.cameraSettings.cameraName};
+    })
+    */
     //Add the security alarm system as a sensor;
     system[platform.config.SerialNumber] = {'type': ss.SensorTypes.SecuritySystem, 'serial': platform.config.SerialNumber, 'name': 'SimpliSafe Alarm System'}
     Object.keys(system).forEach(sensor=> {
@@ -261,7 +269,11 @@ class SimpliSafe {
       if (ss.refreshing_Sensors==false) {
         clearInterval(refreshing);
         if (platform.accessories[SerialNumber].getService(Service.TemperatureSensor)) {
-          callback(null, (ss.sensors[SerialNumber].temp-32) * 5/9);
+          if (ss.sysVersion == 3) {
+            callback(null, (ss.sensors[SerialNumber].temp-32)*5/9);
+          } else {
+            callback(null, (ss.sensors[SerialNumber]['status']['temperature']-32)*5/9);
+          }              
         } else {
           callback(null, ss.sensors[SerialNumber]['status']['triggered']);
         };
