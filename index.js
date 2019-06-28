@@ -269,9 +269,9 @@ class SimpliSafe {
         clearInterval(refreshing);
         if (platform.accessories[SerialNumber].getService(Service.TemperatureSensor)) {
           if (ss.sysVersion == 3) {
-            callback(null, (ss.sensors[SerialNumber].temp-32)*5/9);
-          } else {
             callback(null, (ss.sensors[SerialNumber]['status']['temperature']-32)*5/9);
+          } else {
+            callback(null, (ss.sensors[SerialNumber].temp-32)*5/9);
           }              
         } else {
           callback(null, ss.sensors[SerialNumber]['status']['triggered']);
