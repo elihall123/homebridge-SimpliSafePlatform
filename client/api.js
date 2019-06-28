@@ -392,7 +392,7 @@ async function webResponse(url, options, data){
           resolve(ret);
         });
       } else {
-        if (res.headers['content-type'].indexOf('utf-8') > -1) res.setEncoding('utf8');
+        //if (res.headers['content-type'].indexOf('utf-8') > -1) res.setEncoding('utf8');
         res.on('data', (chunk) => { body += chunk;}) ;
         res.on('end', () => {
           if (typeof res.headers['content-type']!=='undefined' && res.headers['content-type'].indexOf('application/json') > -1) {
