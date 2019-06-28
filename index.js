@@ -1,6 +1,5 @@
 //homebridge-platform-simplisafe
 var API = require('./client/api.js');
-//var FFMPEG = require('./client/ffmpeg').FFMPEG;
 
 var Accessory, Service, Characteristic, UUIDGen, User;
 
@@ -45,16 +44,16 @@ class SimpliSafe {
           fs.writeFileSync(User.configPath(), JSON.stringify(cfg, null, 4));
         }
 
-        if (platform.config.password){
+        //if (platform.config.password){
           ss.apiconfig()
           .then(function(){
             ss.login_via_credentials(config.password)
             .then(function(){
-              if (!platform.config.refresh_token) platform.tokenCheck();
+              //if (!platform.config.refresh_token) platform.tokenCheck();
               return platform.initPlatform(false);
             });
           });
-        } else if (platform.config.refresh_token) {
+        /*} else if (platform.config.refresh_token) {
           ss.apiconfig()
           .then(function(){
             ss.login_via_token(config.refresh_token)
@@ -64,7 +63,7 @@ class SimpliSafe {
           });
         } else {
           platform.log('Missing Password')
-        };
+        };*/
 
         platform.log("Up and monitoring.");
 
