@@ -157,7 +157,7 @@ class SimpliSafe {
 
   configureAccessory(accessory) {
     var platform = this;
-    accessory.reachable = false; // will turn to true after validated
+    accessory.reachable = true; // will turn to true after validated
     platform.addAccessory(accessory);
   }
 
