@@ -151,39 +151,17 @@ module.exports = class API {
 
   async get_Sensors(cached = true) {
     var self = this;
-    if (self.sysVersion==3) {
-      var parsedBody = await self.request({
-        method:'GET',
-        endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
-        params:{'forceUpdate': (cached==false).toString().toLowerCase()} //false = coming from cache
-      })
-      //Check for a successful refresh on sensors --- on 409 send old data
-      if (!parsedBody.success) return self.sensors;
-      for (var sensor_data of parsedBody.sensors) {
-          self.sensors[sensor_data['serial']] = sensor_data;
-          if (sensor_data.type == self.SensorTypes['ContactSensor']) {
-            self.sensors[sensor_data['serial']] = {...sensor_data, 'entryStatus' : sensor_data.status.triggered ? 'open' : 'closed'};
-          } else {
-            self.sensors[sensor_data['serial']] = sensor_data;
-          }
-      }
-    } else {
-      var parsedBody = await self.request({
-          method:'GET',
-          endpoint: 'subscriptions/' + self.subId + '/settings',
-          params:{'settingsType': 'all', 'cached': cached.toString().toLowerCase()} //true = coming from cache
-      })
-          //Check for a successful refresh on sensors --- on 409 send old data
-      if (!parsedBody.success) return self.sensors;
-      for (var sensor_data of parsedBody.settings.sensors) {
-        if (!sensor_data['serial']) break;
-          if (sensor_data.type == self.SensorTypes['ContactSensor']) {
-            self.sensors[sensor_data['serial']] = {...sensor_data, 'status' : { triggered : sensor_data.entryStatus=='open' }};
-          } else {
-            self.sensors[sensor_data['serial']] = sensor_data;
-          }
-      };
+    var parsedBody = await self.request({
+      method:'GET',
+      endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
+      params:{'forceUpdate': (cached==false).toString().toLowerCase()} //false = coming from cache
+    })
+    //Check for a successful refresh on sensors --- on 409 send old data
+    if (!parsedBody.success) return self.sensors;
+    for (var sensor_data of parsedBody.sensors) {
+      self.sensors[sensor_data['serial']] = sensor_data;
     };
+    return self.sensors;
   };//End Of Function get_Sensors
 
   async login_via_credentials(password){
