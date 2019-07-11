@@ -9,6 +9,25 @@ module.exports = function(homebridge) {
   Characteristic = homebridge.hap.Characteristic;
   UUIDGen = homebridge.hap.uuid;
   User = homebridge.user;
+
+  const TargetSecuritySystemStateConfig = {
+		[Characteristic.SecuritySystemTargetState.STAY_ARM]: {
+			apiVerb: 'armstay/latest',
+			currentState: Characteristic.SecuritySystemCurrentState.STAY_ARM,
+			name: 'Armed Stay',
+		},
+		[Characteristic.SecuritySystemTargetState.AWAY_ARM]: {
+			apiVerb: 'armaway/latest',
+			currentState: Characteristic.SecuritySystemCurrentState.AWAY_ARM,
+			name: 'Armed Away',
+		},
+		[Characteristic.SecuritySystemTargetState.DISARM]: {
+			apiVerb: 'disarm/latest',
+			currentState: Characteristic.SecuritySystemCurrentState.DISARMED,
+			name: 'Disarmed',
+    }
+  };
+    
   homebridge.registerPlatform("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", SimpliSafe, true);
 }
 
@@ -16,60 +35,30 @@ var ss; //SimpliSafe Client
 
 class SimpliSafe {
   
-  addAccessory(accessory, publish = false) {
+  prepareAccessory(accessory, publish = false) {
     var platform = this;
       accessory.on('identify', (paired, callback) => {
                 platform.log(accessory.displayName, 'Added!!!');
                 callback();
       });
 
-      if(accessory.getService(Service.CarbonMonoxideSensor)) {
-          accessory.getService(Service.CarbonMonoxideSensor)
-            .getCharacteristic(Characteristic.CarbonMonoxideDetected)
-            .on('get', async (callback)=>{
-              await platform.getSensorState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
-            });
-      } else if(accessory.getService(Service.ContactSensor)) {
-          accessory.getService(Service.ContactSensor)
-            .getCharacteristic(Characteristic.ContactSensorState)
-            .on('get', async (callback)=>{
-              await platform.getSensorState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
-            });
-      } else if(accessory.getService(Service.LeakSensor)) {
-          accessory.getService(Service.LeakSensor)
-            .getCharacteristic(Characteristic.LeakDetected)
-            .on('get', async (callback)=>{
-              await platform.getSensorState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
-            });
-      } else if (accessory.getService(Service.MotionSensor) && accessory.getService(Service.GlassBreakSensor)) {
-          accessory.getService(Service.MotionSensor)
-            .getCharacteristic(Characteristic.MotionDetected)
-            .on('get', async (callback)=>{
-              await platform.getSensorState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
-            });
-      } else if (accessory.getService(Service.SecuritySystem)) {
-          accessory.getService(Service.SecuritySystem)
-            .getCharacteristic(Characteristic.SecuritySystemCurrentState)
-            .on('get', (callback)=>{
-              platform.getAlarmState(callback);
-            });
+      if (accessory.getService(Service.SecuritySystem)) {
           accessory.getService(Service.SecuritySystem)
             .getCharacteristic(Characteristic.SecuritySystemTargetState)
-            .on('set', (state,callback)=>{
-                platform.setAlarmState(state, callback);
-                accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, state);
-            });
-      } else if (accessory.getService(Service.SmokeSensor)) {
-          accessory.getService(Service.SmokeSensor)
-            .getCharacteristic(Characteristic.SmokeDetected)
-            .on('get', async (callback)=>{
-              await platform.getSensorState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
-            });
-      } else if (accessory.getService(Service.TemperatureSensor)) {
-          accessory.getService(Service.TemperatureSensor)
-            .getCharacteristic(Characteristic.CurrentTemperature)
-            .on('get', async (callback)=>{
-              await platform.getSensorState(accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString(), callback);
+            .on('set', async (state, callback)=>{
+              switch (state) {
+                case Characteristic.SecuritySystemTargetState.STAY_ARM:
+                case Characteristic.SecuritySystemTargetState.NIGHT_ARM:
+                  await ss.set_Alarm_State("home")
+                  break;
+                case Characteristic.SecuritySystemTargetState.AWAY_ARM :
+                  await ss.set_Alarm_State("away")
+                  break;
+                case Characteristic.SecuritySystemTargetState.DISARM:
+                  await ss.set_Alarm_State("off")
+                  break;
+              }
+              accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, state);
             });
       };
 
@@ -84,7 +73,7 @@ class SimpliSafe {
   configureAccessory(accessory) {
     var platform = this;
     accessory.reachable = false; // will turn to true after validated
-    platform.addAccessory(accessory);
+    platform.prepareAccessory(accessory);
   };// End Of Function configureAccessory
 
   constructor(log, config, api) {
@@ -120,107 +109,84 @@ class SimpliSafe {
         .then(function(){
           ss.login_via_credentials(config.password)
           .then(function(){
+            platform.log('Up and Monitoring');
             return platform.initPlatform(false);
           });
         });
 
+        setInterval(()=>{
+          ss.get_Alarm_State()
+          .then ((status)=>{
+            if (status.isAlarming) platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystemCurrentState).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
+            switch (status.alarmState.toLowerCase()) {
+              case "home":
+              case 'home_count':
+                  SecuritySystemTargetState
+                  platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState).updateValue(Characteristic.SecuritySystemTargetState.STAY_ARM);
+                  platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.STAY_ARM);
+                break;
+              case "away":
+              case 'away_count':
+              case 'alarm_count':
+                platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState).updateValue(Characteristic.SecuritySystemTargetState.AWAY_ARM);
+                platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.AWAY_ARM);
+                break;
+              case "off":
+                platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState).updateValue(Characteristic.SecuritySystemTargetState.DISARMED);
+                platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.DISARMED);
+                break;
+            };
+          });
+          
+          ss.get_Sensors(false)
+          .then((sensors)=>{
+            Object.keys(sensors).forEach((sensor) => {
+              if (![
+                ss.SensorTypes.CarbonMonoxideSensor,
+                ss.SensorTypes.ContactSensor,
+                ss.SensorTypes.GlassBreakSensor,
+                ss.SensorTypes.LeakSensor,
+                ss.SensorTypes.MotionSensor,
+                ss.SensorTypes.SmokeSensor,
+                ss.SensorTypes.TemperatureSensor
+              ].includes(sensors[sensor].type)) return;
+
+              Object.keys(platform.accessories).forEach(accessory => {
+                accessory = platform.accessories[accessory];
+                if (accessory.context.SerialNumber != sensor) return;
+                
+                switch (sensor[sensor].type) {
+                  case ss.SensorTypes.CarbonMonoxideSensor:
+                    accessory.getService(Service.CarbonMonoxideSensor).getCharacteristic(Characteristic.CarbonDioxideDetected).updateValue(sensors[sensor].status.triggered);
+                    break;
+                  case ss.SensorTypes.ContactSensor:
+                    accessory.getService(Service.ContactSensor).getCharacteristic(Characteristic.ContactSensorState).updateValue(sensors[sensor].status.triggered);
+                    break;
+                  case ss.SensorTypes.GlassBreakSensor:
+                    accessory.getService(Service.MotionSensor).getCharacteristic(Characteristic.MotionDetected).updateValue(sensors[sensor].status.triggered);
+                    break;
+                  case ss.SensorTypes.LeakSensor:
+                    accessory.getService(Service.LeakSensor).getCharacteristic(Characteristic.LeakDetected).updateValue(sensors[sensor].status.triggered);
+                    break;
+                  case ss.SensorTypes.MotionSensor:
+                    accessory.getService(Service.MotionSensor).getCharacteristic(Characteristic.MotionDetected).updateValue(sensors[sensor].status.triggered);
+                    break;
+                  case ss.SensorTypes.SmokeSensor:
+                    accessory.getService(Service.SmokeSensor).getCharacteristic(Characteristic.SmokeDetected).updateValue(sensors[sensor].status.triggered);
+                    break;
+                  case ss.SensorTypes.TemperatureSensor:
+                    accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensors[sensor].status.temperature-32) * 5/9);
+                    break;
+                };
+              });
+            });
+          });
+        }, (platform.config.refresh_timer * 1000));
+
       }.bind(platform));
     };
   };//End Of Function SimpliSafe 
-
-  createAccessory(sensor) {
-    var platform = this;
-
-    let newAccessory = new Accessory(ss.SensorTypes[ss.sensors[sensor].type] + ' ' + sensor.toString(), UUIDGen.generate(ss.SensorTypes[ss.sensors[sensor].type] + ' ' + sensor));
-    newAccessory.reachable = true;
-    newAccessory.getService(Service.AccessoryInformation)
-      .setCharacteristic(Characteristic.SerialNumber, sensor)
-      .setCharacteristic(Characteristic.Manufacturer, 'SimpliSafe')
-      .setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
-
-    switch (ss.sensors[sensor].type) {
-      case ss.SensorTypes.CarbonMonoxideSensor:
-        newAccessory.addService(Service.CarbonMonoxideSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
-        break;
-      case ss.SensorTypes.ContactSensor:
-        newAccessory.addService(Service.ContactSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
-        break;
-      case ss.SensorTypes.GlassBreakSensor:
-          newAccessory.addService(Service.MotionSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
-          break;
-      case ss.SensorTypes.LeakSensor:
-          newAccessory.addService(Service.LeakSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
-          break;
-      case ss.SensorTypes.MotionSensor:
-        newAccessory.addService(Service.MotionSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
-        break;
-      case ss.SensorTypes.SecuritySystem:
-          newAccessory.addService(Service.SecuritySystem, "SimpliSafe Security System");
-          break;
-      case ss.SensorTypes.SmokeSensor:
-        newAccessory.addService(Service.SmokeSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
-        break;
-      case ss.SensorTypes.TemperatureSensor:
-        newAccessory.addService(Service.TemperatureSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
-        break;
-    };
-    return newAccessory;
-  };// End Of Function createAccessory 
-
-  async getAlarmState(callback) {
-    var platform = this;
-
-    if (ss.readied===true){
-      var state = await ss.get_Alarm_State();
-
-      if (state.isAlarming) {
-        callback(null, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
-      }
-      switch (state.alarmState.toString().toLowerCase()) {
-          case 'home':
-          case 'home_count':
-            callback(null, Characteristic.SecuritySystemCurrentState.STAY_ARM);
-            break;
-          case 'away':
-          case 'away_count':
-          case 'alarm_count':
-            callback(null, Characteristic.SecuritySystemCurrentState.AWAY_ARM);
-            break;
-          case 'off':
-            callback(null, Characteristic.SecuritySystemCurrentState.DISARMED);
-            break;
-      };
-    };
-  }; // End Of Function getCurrentState
-
-  async getSensorState(SerialNumber, callback) {
-    var platform = this;
-    if (ss.readied === true) {
-      if (platform.refreshing_Sensors === false && (platform.refreshing_Sensors_Timer + (platform.config.refresh_timer * 1000)) <= Date.now()) {
-        platform.log('Refreshing Sensors Data');
-        platform.Refreshing = true;
-        platform.refreshing_Sensors_Timer = Date.now();
-        await ss.get_Sensors(false);
-        platform.Refreshing = false;
-      };
-
-      var refreshing = await setInterval(()=>{
-        if (platform.refreshing_Sensors === false) {
-          clearInterval(refreshing);
-          if (platform.accessories[SerialNumber].getService(Service.TemperatureSensor)) {
-            if (ss.sysVersion == 3) {
-              callback(null, (ss.sensors[SerialNumber]['status']['temperature']-32)*5/9);
-            } else {
-              callback(null, (ss.sensors[SerialNumber].temp-32)*5/9);
-            }              
-          } else {
-            callback(null, ss.sensors[SerialNumber]['status']['triggered']);
-          };
-        };
-      }, 500);
-    };
-  };// End Of Function getState
-
+ 
   async initPlatform() {
     var platform = this;
     var system = ss.sensors;
@@ -235,40 +201,44 @@ class SimpliSafe {
       //found Accessory to Sensor return to continue searching and change Reachability to true
       if (platform.accessories[sensor]) return platform.accessories[sensor].updateReachability(true);
         //found new sensor add it as an accessory
-        if (ss.sysVersion == 3) {
-          if (![ss.SensorTypes.CarbonMonoxideSensor, ss.SensorTypes.ContactSensor, ss.SensorTypes.GlassBreakSensor, ss.SensorTypes.LeakSensor, ss.SensorTypes.MotionSensor, ss.SensorTypes.SecuritySystem, ss.SensorTypes.SmokeSensor, ss.SensorTypes.TemperatureSensor].includes(ss.sensors[sensor].type)) return;
-          platform.addAccessory(platform.createAccessory(sensor), true);
-        } else {
-          if (![ss.SensorTypes.ContactSensor, ss.SensorTypes.SecuritySystem, ss.SensorTypes.TemperatureSensor].includes(ss.sensors[sensor].type)) return;
-          platform.addAccessory(platform.createAccessory(sensor), true);
+        if ([ss.SensorTypes.CarbonMonoxideSensor, ss.SensorTypes.ContactSensor, ss.SensorTypes.GlassBreakSensor, ss.SensorTypes.LeakSensor, ss.SensorTypes.MotionSensor, ss.SensorTypes.SecuritySystem, ss.SensorTypes.SmokeSensor, ss.SensorTypes.TemperatureSensor].includes(ss.sensors[sensor].type)) {
+          let newAccessory = new Accessory(ss.SensorTypes[ss.sensors[sensor].type] + ' ' + sensor.toString(), UUIDGen.generate(ss.SensorTypes[ss.sensors[sensor].type] + ' ' + sensor));
+          newAccessory.reachable = true;
+          newAccessory.getService(Service.AccessoryInformation)
+            .setCharacteristic(Characteristic.SerialNumber, sensor)
+            .setCharacteristic(Characteristic.Manufacturer, 'SimpliSafe')
+            .setCharacteristic(Characteristic.Model, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
+      
+          switch (ss.sensors[sensor].type) {
+            case ss.SensorTypes.CarbonMonoxideSensor:
+              newAccessory.addService(Service.CarbonMonoxideSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
+              break;
+            case ss.SensorTypes.ContactSensor:
+              newAccessory.addService(Service.ContactSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
+              break;
+            case ss.SensorTypes.GlassBreakSensor:
+                newAccessory.addService(Service.MotionSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
+                break;
+            case ss.SensorTypes.LeakSensor:
+                newAccessory.addService(Service.LeakSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
+                break;
+            case ss.SensorTypes.MotionSensor:
+              newAccessory.addService(Service.MotionSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
+              break;
+            case ss.SensorTypes.SecuritySystem:
+                newAccessory.addService(Service.SecuritySystem, "SimpliSafe Security System");
+                break;
+            case ss.SensorTypes.SmokeSensor:
+              newAccessory.addService(Service.SmokeSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Detector'));
+              break;
+            case ss.SensorTypes.TemperatureSensor:
+              newAccessory.addService(Service.TemperatureSensor, ss.SensorTypes[ss.sensors[sensor].type].replace('Sensor', ' Sensor'));
+              break;
+          };
+          platform.prepareAccessory(newAccessory, true);      
         };
+
     });
   };// End Of Function initPlatform 
-
-  async setAlarmState(state, callback) {
-    // Set state in simplisafe 'off' or 'home' or 'away'
-    var platform = this;
-    if (ss.readied === true){
-      var ssState;
-      switch (state) {
-        case Characteristic.SecuritySystemTargetState.STAY_ARM:
-        case Characteristic.SecuritySystemTargetState.NIGHT_ARM:
-          ssState = "home";
-          break;
-        case Characteristic.SecuritySystemTargetState.AWAY_ARM :
-          ssState = "away";
-          break;
-        case Characteristic.SecuritySystemTargetState.DISARM:
-          ssState = "off";
-          break;
-      }
-      ss.set_Alarm_State(ssState)
-      .then(function() {
-        callback(null, state);
-      }, function() {
-          callback(new Error('Failed to set target state to ' + state));
-      });
-    };
-  };// End Of Function setAlarmState
     
 }; // End Of Class SimpliSafe
