@@ -9,24 +9,6 @@ module.exports = function(homebridge) {
   Characteristic = homebridge.hap.Characteristic;
   UUIDGen = homebridge.hap.uuid;
   User = homebridge.user;
-
-  const TargetSecuritySystemStateConfig = {
-		[Characteristic.SecuritySystemTargetState.STAY_ARM]: {
-			apiVerb: 'armstay/latest',
-			currentState: Characteristic.SecuritySystemCurrentState.STAY_ARM,
-			name: 'Armed Stay',
-		},
-		[Characteristic.SecuritySystemTargetState.AWAY_ARM]: {
-			apiVerb: 'armaway/latest',
-			currentState: Characteristic.SecuritySystemCurrentState.AWAY_ARM,
-			name: 'Armed Away',
-		},
-		[Characteristic.SecuritySystemTargetState.DISARM]: {
-			apiVerb: 'disarm/latest',
-			currentState: Characteristic.SecuritySystemCurrentState.DISARMED,
-			name: 'Disarmed',
-    }
-  };
     
   homebridge.registerPlatform("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", SimpliSafe, true);
 }
@@ -46,19 +28,21 @@ class SimpliSafe {
           accessory.getService(Service.SecuritySystem)
             .getCharacteristic(Characteristic.SecuritySystemTargetState)
             .on('set', async (state, callback)=>{
+              //platform.setAlarmState(state, callback);
               switch (state) {
                 case Characteristic.SecuritySystemTargetState.STAY_ARM:
                 case Characteristic.SecuritySystemTargetState.NIGHT_ARM:
-                  await ss.set_Alarm_State("home")
+                  await ss.set_Alarm_State("home");
                   break;
                 case Characteristic.SecuritySystemTargetState.AWAY_ARM :
-                  await ss.set_Alarm_State("away")
+                  await ss.set_Alarm_State("away");
                   break;
                 case Characteristic.SecuritySystemTargetState.DISARM:
-                  await ss.set_Alarm_State("off")
+                  await ss.set_Alarm_State("off");
                   break;
-              }
-              accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, state);
+              };
+              callback(null, state);
+              accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, state);         
             });
       };
 
@@ -75,6 +59,11 @@ class SimpliSafe {
     accessory.reachable = false; // will turn to true after validated
     platform.prepareAccessory(accessory);
   };// End Of Function configureAccessory
+
+  setAlarmState(state,callback){
+    callback(null, state);
+
+  };
 
   constructor(log, config, api) {
     var platform = this;
