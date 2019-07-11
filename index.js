@@ -121,7 +121,6 @@ class SimpliSafe {
             switch (status.alarmState.toLowerCase()) {
               case "home":
               case 'home_count':
-                  SecuritySystemTargetState
                   platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState).updateValue(Characteristic.SecuritySystemTargetState.STAY_ARM);
                   platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.STAY_ARM);
                 break;
