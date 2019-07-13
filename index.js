@@ -141,7 +141,7 @@ class SimpliSafe {
 
               Object.keys(platform.accessories).forEach(accessory => {
                 accessory = platform.accessories[accessory];
-                if (accessory.context.SerialNumber != sensor) return;
+                if (accessory.getService(Service.AccessoryInformation).getCharacteristic(Characteristic.SerialNumber).value.toString() != sensor) return;
                 
                 switch (sensors[sensor].type) {
                   case ss.SensorTypes.CarbonMonoxideSensor:
