@@ -23,7 +23,7 @@
     "type": "git",
     "url": "git://github.com/graanco/homebridge-SimpliSafePlatform.git"
   },
-  "version": "1.0.30",
+  "version": "1.0.31",
   "warnings": [
     {
       "code": "ENOTSUP",
@@ -31,7 +31,7 @@
         "homebridge": ">=0.4.5",
         "node": ">=12.4.0"
       },
-      "pkgid": "homebridge-simplisafeplatform@1.0.30"
+      "pkgid": "homebridge-simplisafeplatform@1.0.31"
     },
     {
       "code": "ENOTSUP",
@@ -39,7 +39,7 @@
         "homebridge": ">=0.4.5",
         "node": ">=12.4.0"
       },
-      "pkgid": "homebridge-simplisafeplatform@1.0.30"
+      "pkgid": "homebridge-simplisafeplatform@1.0.31"
     }
   ]
 }
