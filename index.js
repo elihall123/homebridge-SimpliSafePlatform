@@ -143,7 +143,7 @@ class SimpliSafe {
                 accessory = platform.accessories[accessory];
                 if (accessory.context.SerialNumber != sensor) return;
                 
-                switch (sensor[sensor].type) {
+                switch (sensors[sensor].type) {
                   case ss.SensorTypes.CarbonMonoxideSensor:
                     accessory.getService(Service.CarbonMonoxideSensor).getCharacteristic(Characteristic.CarbonDioxideDetected).updateValue(sensors[sensor].status.triggered);
                     break;
