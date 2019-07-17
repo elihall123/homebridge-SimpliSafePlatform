@@ -120,7 +120,7 @@ class SimpliSafe {
                 platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.AWAY_ARM);
                 break;
               case "off":
-                platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState).updateValue(Characteristic.SecuritySystemTargetState.DISARMED);
+                platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState).updateValue(Characteristic.SecuritySystemTargetState.DISARM);
                 platform.accessories[platform.config.SerialNumber].getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemCurrentState).updateValue(Characteristic.SecuritySystemCurrentState.DISARMED);
                 break;
             };
