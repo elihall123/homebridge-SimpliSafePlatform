@@ -130,7 +130,7 @@ module.exports = class API {
     //Get systems associated to this account.
     var self = this;
     try{
-      var resp = await await this.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});//this.get_Subscription_Data();
+      var resp = await this.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});//this.get_Subscription_Data();
       if (resp >= 400) throw('Access Forbidden. Please wait an hour and try again. Error: ', resp);
       for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
