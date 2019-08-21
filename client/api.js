@@ -94,7 +94,7 @@ module.exports = class API {
       /*'siren': 13,
       'unknown': 99*/
     };
-    API_Config();
+    self.API_Config();
 
   };//End Of Function Constructor
 
