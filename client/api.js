@@ -94,6 +94,7 @@ module.exports = class API {
       /*'siren': 13,
       'unknown': 99*/
     };
+    API_Config();
 
   };//End Of Function Constructor
 
@@ -240,8 +241,8 @@ module.exports = class API {
   
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
-    if (!self.simplisafe) await self.API_Config();
-    var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
+    //if (!self.simplisafe) await self.API_Config();
+    //var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
 
     if (_access_token_expire && Date.now() >= _access_token_expire && !this._actively_refreshing){
       self._actively_refreshing = true;
