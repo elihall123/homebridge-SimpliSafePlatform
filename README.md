@@ -4,6 +4,7 @@ This project is a [Homebridge] platform pluging that allows you to monitor and c
 
 To use this, you must have a working Homebridge server running in your network and this software requires at least SimpliSafe hardware version 3.
 
+
 ## Screenshots
 ![View from the home app](/screenshots/0C99F13D-FD5D-406A-AE59-4EBD4BDE7FA8.png?raw=true "View from the Home app.")
 ![Controlling alarm system](/screenshots/452C5BBE-2D92-4F19-A72F-232E3BA4AB5E.png?raw=true "Controlling the alarm system.")
@@ -11,7 +12,7 @@ To use this, you must have a working Homebridge server running in your network a
 ## Notes
 - The "night" toggle in the iOS 10 Home App UI sets the alarm state to "home" in SimpliSafe. This is due to SimpliSafe not having a dedicated "night" mode.
 - Usage of this plugin requires the extra $10/month online monitoring plan, since that enables the required API endpoints to control the alarm remotely.
-- Removed the ability for Cellular Versions of the system. The system has a Voice Prompt that is unable to be turned off.
+- Removed the ability for Cellular Versions. The system has a Voice Prompt that is unable to be turned off.
 
 
 ## Installation
@@ -41,7 +42,7 @@ To use this, you must have a working Homebridge server running in your network a
     }
 
 
-- The refresh timer is the amount of time in seconds for the system to updates its current status. It will scan for the system and its sensors. Keep the setting around 60 seconds for systems cellular only versions and don't go much lower than 30 seconds for the wifi ones.
+- The refresh timer is the amount of time in seconds for the system to updates its current status. It will scan for the system and its sensors. Keep the setting around 60 seconds for systems cellular only versions and don't go much lower than 10 seconds for the wifi ones.
 
 - To clear the cache of accessories. Place in reset=true as an example:
 
