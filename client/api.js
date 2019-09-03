@@ -23,13 +23,13 @@ module.exports = class API {
     _access_token = resp.access_token;
     _access_token_expire = Date.now() + ((resp.expires_in-60) * 1000);
     _access_token_type = resp.token_type;
-    this._refresh_token = resp.refresh_token;
+    self._refresh_token = resp.refresh_token;
   };//End Of Function _authenticate
 
   async _get_User_ID (){
     var self = this;
     var resp = await self.request({method:'GET',endpoint: 'api/authCheck'})
-    this.user_id = resp['userId'];
+    self.user_id = resp['userId'];
   };//End Of Function _getUserId
 
   async _Refresh_Access_Token(refresh_token){
@@ -105,9 +105,9 @@ module.exports = class API {
   async get_Camera_Stream(uuid){
     var self = this;
     if (!self.simplisafe) await self.API_Config();
-    if (_access_token_expire && Date.now() >= _access_token_expire && this._actively_refreshing == false){
-            this._actively_refreshing = true;
-            await this._refresh_access_token(this._refresh_token);
+    if (_access_token_expire && Date.now() >= _access_token_expire && self._actively_refreshing == false){
+            self._actively_refreshing = true;
+            await self._refresh_access_token(self._refresh_token);
     }
 
     var url = new URL(self.simplisafe.webapp.mediaHost + self.simplisafe.webapp.mediaPath + '/' + uuid + '/flv');
@@ -130,11 +130,10 @@ module.exports = class API {
     //Get systems associated to this account.
     var self = this;
     try{
-      var resp = await this.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
+      var resp = await self.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
       if (resp >= 400) throw('Access Forbidden. Please wait an hour and try again. Error: ' + resp);
       for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
-          //self.log(system_data.features, system_data.location);
             self.subId = system_data.sid;
             self.sysVersion = system_data.location.system.version;
             for (var camera of system_data.location.system.cameras){
@@ -245,7 +244,7 @@ module.exports = class API {
 
     if (_access_token_expire && Date.now() >= _access_token_expire && !self._actively_refreshing){
       self._actively_refreshing = true;
-      await self._Refresh_Access_Token(this._refresh_token);
+      await self._Refresh_Access_Token(self._refresh_token);
     }
 
     var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
@@ -272,7 +271,7 @@ module.exports = class API {
     self.cookie = resp.cookie;
     if (resp.statusCode >= 400) {
       self._actively_refreshing = true;
-      await self._Refresh_Access_Token(this._refresh_token);
+      await self._Refresh_Access_Token(self._refresh_token);
       return resp.statusCode;
     } else {
       return resp.body;
