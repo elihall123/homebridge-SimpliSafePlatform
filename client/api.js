@@ -94,7 +94,6 @@ module.exports = class API {
       /*'siren': 13,
       'unknown': 99*/
     };
-    self.API_Config();
 
   };//End Of Function Constructor
 
@@ -131,7 +130,7 @@ module.exports = class API {
     //Get systems associated to this account.
     var self = this;
     try{
-      var resp = await this.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});//this.get_Subscription_Data();
+      var resp = await this.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
       if (resp >= 400) throw('Access Forbidden. Please wait an hour and try again. Error: ' + resp);
       for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
@@ -241,8 +240,8 @@ module.exports = class API {
   
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
-    //if (!self.simplisafe) await self.API_Config();
-    //var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
+    if (!self.simplisafe) await self.API_Config();
+    var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
 
     if (_access_token_expire && Date.now() >= _access_token_expire && !this._actively_refreshing){
       self._actively_refreshing = true;
@@ -272,6 +271,8 @@ module.exports = class API {
     var resp = await webResponse(url, options, data);
     self.cookie = resp.cookie;
     if (resp.statusCode >= 400) {
+      self._actively_refreshing = true;
+      await self._Refresh_Access_Token(this._refresh_token);
       return resp.statusCode;
     } else {
       return resp.body;
@@ -280,18 +281,10 @@ module.exports = class API {
 
   async set_Alarm_State(value) {
   var self = this;
-    if (self.sysVersion==3) {
       return await self.request({
        method:'post',
        endpoint:'ss3/subscriptions/' + self.subId + '/state/' + value
       })
-   } else {
-        return await self.request({
-        method:'post',
-        endpoint:'subscriptions/' + self.subId + '/state',
-        params:{'state': value}
-      })
-    };
   };//End Of Function set_Alarm_State
 
 };//End Of Class API
