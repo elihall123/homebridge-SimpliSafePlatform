@@ -243,7 +243,7 @@ module.exports = class API {
     if (!self.simplisafe) await self.API_Config();
     var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
 
-    if (_access_token_expire && Date.now() >= _access_token_expire && !this._actively_refreshing){
+    if (_access_token_expire && Date.now() >= _access_token_expire && !self._actively_refreshing){
       self._actively_refreshing = true;
       await self._Refresh_Access_Token(this._refresh_token);
     }
