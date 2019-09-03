@@ -29,7 +29,7 @@ To use this, you must have a working Homebridge server running in your network.
         "accessories": [],
         "platforms": [
           {
-            "platform" : "homebridge-SimpliSafePlatform",
+            "platform" : "homebridge-simplisafeplatform",
             "name" : "SimpliSafe Client",
             "SerialNumber": "system serial",
             "username" : "email",
@@ -57,7 +57,7 @@ To use this, you must have a working Homebridge server running in your network.
         "accessories": [],
         "platforms": [
           {
-            "platform" : "homebridge-SimpliSafePlatform",
+            "platform" : "homebridge-simplisafeplatform",
             "name" : "SimpliSafe Client",
             "SerialNumber": "system serial",
             "username" : "email",
