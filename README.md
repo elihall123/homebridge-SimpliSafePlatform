@@ -11,7 +11,7 @@ To use this, you must have a working Homebridge server running in your network.
 ## Notes
 - The "night" toggle in the iOS 10 Home App UI sets the alarm state to "home" in SimpliSafe. This is due to SimpliSafe not having a dedicated "night" mode.
 - Usage of this plugin requires the extra $10/month online monitoring plan, since that enables the required API endpoints to control the alarm remotely.
-- Cellular Versions of the system will need Voice Prompts to be turned off to prevent the announcements fro the sensors getting reset.
+- Removed the ability for Cellular Versions of the system. The system has a Voice Prompt that is unable to be turned off.
 
 
 ## Installation
