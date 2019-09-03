@@ -72,4 +72,4 @@ To use this, you must have a working Homebridge server running in your network a
 
 This will only work for one system at one location. So in order to do multiple systems each location would need to run homebridge and this platform plugin.
 
-# Major Credit goes to chowielin, nfarina, tobycth3 and greencoder.
+# Major Credit goes to chowielin, nfarina, tobycth3 and greencoder, nikonratm.
