@@ -23,7 +23,6 @@ class SimpliSafe {
 
   constructor(log, config, api) {
     this.log = log;
-    this.log("Constructor")
     this.config = config;
     this.ssAccessories = [];
     this.accessories = [];
@@ -55,6 +54,7 @@ class SimpliSafe {
           this.updateSS();
           this.SocketEvents = ss.get_SokectEvents(data=> {
             if (data==='DISCONNECT') {
+              this.log("Event Socket Disconnected. Trying to reconnect...")
               ss.login_via_credentials(config.password);
               this.SocketEvents;
             }
@@ -62,24 +62,19 @@ class SimpliSafe {
             let accessory;
 
             if (data.sensorType == ss.ssDeviceIds.baseStation) {
-              //let device = this.accessories.find(accessory => accessory.UUID == ssAccessory.uuid);
               accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.account.toLowerCase()));
-              
             } else if (this.supportedDevices.includes(data.type)) {
               accessoy = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()));
             };
 
             switch (data.eventCid.toString()) {
-              case ss.ssEventContactIds.unknown:
-                this.log(data);
-                break;
               case ss.ssEventContactIds.alarmSmokeDetectorTriggered:
               case ss.ssEventContactIds.alarmWaterSensorTriggered: 
               case ss.ssEventContactIds.alarmFreezeSensorTriggered:
               case ss.ssEventContactIds.alarmCoSensorTriggered:
               case ss.ssEventContactIds.alarmEntrySensorTriggered:
               case ss.ssEventContactIds.alarmMotionOrGlassbreakSensorTriggered:
-                this.log("System alarm Triggered");
+                this.log("System Alarm Triggered");
                 accessory.getService(Service.SecuritySystemCurrentState).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
                 break;
               case ss.ssEventContactIds.alarmCanceled:
@@ -87,7 +82,7 @@ class SimpliSafe {
               case ss.ssEventContactIds.alarmWaterSensorStopped:
               case ss.ssEventContactIds.alarmFreezeSensorStopped:
               case ss.ssEventContactIds.alarmCoSensorStopped:
-                this.log("System alarm Silenced");
+                this.log("System Alarm Silenced");
                 accessory.getService(Service.SecuritySystemCurrentState).setCharacteristic(Characteristic.SecuritySystemCurrentState, accessory.getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState));
                 break;
               case ss.ssEventContactIds.systemHome2:
@@ -112,17 +107,58 @@ class SimpliSafe {
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);  
                 break;
-              case ss.ssEventContactIds.entryDelay:
+              case ss.ssEventContactIds.sensorError:
+                this.log(`${accessory.displayName} sensor error.`);
+                accessory.reachable = false;
+                break;
+              case ss.ssEventContactIds.sensorRestored:
                 this.log(data);
-                //accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, sensors[sensor].status.triggered);
+                if (data.sensorType == ss.ssDeviceIds.entrySensor){
+                  this.log(`${accessory.displayName} sensor closed.`);
+                  accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_DETECTED);
+                } else {
+                  accessory.reachable =true;
+                }
+                break;    
+              case ss.ssEventContactIds.entryDelay:
+              case ss.ssEventContactIds.warningSensorOpen:
+                this.log(data);
+                this.log(`${accessory.displayName} sensor opened.`);
+                accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
                 break;    
               case ss.ssEventContactIds.batteryLow:
                 this.log(`${accessory.displayName} sensor battery is low.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW);
                 break;
               case ss.ssEventContactIds.batteryRestored:
-                  this.log(`${accessory.displayName} sensor battery has been restored.`);
+                this.log(`${accessory.displayName} sensor battery has been restored.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
+                break;
+              case ss.ssEventContactIds.wiFiOutage:
+                accessory.reachable = false;
+                break;                
+              case ss.ssEventContactIds.wiFiRestored:
+                accessory.reachable = true;
+                break;       
+              case ss.ssEventContactIds.sensorAdded:
+                this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()), 'type': data.sensorType, 'serial': data.sensorSerial, 'name': data.sensorName});
+                this.updateSS();
+                break;
+              case ss.ssEventContactIds.sensorNamed:
+                accessory.displayName = data.sensorName;
+                break;
+              case ss.ssEventContactIds.systemPowerOutage:
+              case ss.ssEventContactIdssystemInterferenceDetected:
+                this.log(`${accessory.displayName} fault.`);
+                accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+                break;
+              case ss.ssEventContactIds.systemPowerRestored:
+              case ss.ssEventContactIds.systemInterferenceResolved:
+                this.log(`${accessory.displayName} restored.`);
+                accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+                break;
+              default:
+                this.log(data);
                 break;
             };
           });
@@ -181,18 +217,22 @@ class SimpliSafe {
             .getCharacteristic(Characteristic.SecuritySystemTargetState)
             .on('set', async (state, callback)=>{
               //platform.setAlarmState(state, callback);
-              switch (state) {
-                case Characteristic.SecuritySystemTargetState.STAY_ARM:
-                  await ss.set_Alarm_State("home");
-                  break;
-                case Characteristic.SecuritySystemTargetState.AWAY_ARM :
-                  await ss.set_Alarm_State("away");
-                  break;
-                case Characteristic.SecuritySystemTargetState.DISARM:
-                  await ss.set_Alarm_State("off");
-                  break;
-              };                
-              callback(null, state);
+              if (device.reachable) {
+                switch (state) {
+                  case Characteristic.SecuritySystemTargetState.STAY_ARM:
+                    await ss.set_Alarm_State("home");
+                    break;
+                  case Characteristic.SecuritySystemTargetState.AWAY_ARM :
+                    await ss.set_Alarm_State("away");
+                    break;
+                  case Characteristic.SecuritySystemTargetState.DISARM:
+                    await ss.set_Alarm_State("off");
+                    break;
+                };                
+                callback(null, state);
+              } else {
+                callback("no_response");
+              };
             });
           };
       } else {
@@ -200,7 +240,8 @@ class SimpliSafe {
         device.getService(Service.AccessoryInformation)
           .setCharacteristic(Characteristic.SerialNumber, ssAccessory.serial)
           .setCharacteristic(Characteristic.Manufacturer, 'SimpliSafe')
-          .setCharacteristic(Characteristic.Model, ss.ssDeviceIds[ssAccessory.type]) 
+          .setCharacteristic(Characteristic.Model, Object.keys(ss.ssDeviceIds).find(key => ss.ssDeviceIds[key] === ssAccessory.type)); 
+        device.reachable = true;
 
         if (ssAccessory.type === ss.ssDeviceIds.baseStation) {
           device.addService(Service.SecuritySystem);
@@ -231,8 +272,51 @@ class SimpliSafe {
             .setProps({validValues: [Characteristic.SecuritySystemTargetState.STAY_ARM, Characteristic.SecuritySystemTargetState.AWAY_ARM, Characteristic.SecuritySystemTargetState.DISARM]});
           
         } else  if (ssAccessory.type === ss.ssDeviceIds.Camera){
-            device.addService(Service.CameraControl);
+            //const cameraAccessory = new _simplicam.default(camera.cameraSettings.cameraName || 'Camera', camera.uuid, camera, this.cameraOptions, this.log, this.simplisafe, Service, Characteristic, UUIDGen, StreamController);
+            device.addService(Service.CameraRTPStreamManagement);
+            device.getService(Service.CameraRTPStreamManagement)
+            .getCharacteristic(Characteristic.SupportedVideoStreamConfiguration)
+              .on('get', function(callback) {
+                //callback(null, self.supportedVideoStreamConfiguration);
+              })
+            .getCharacteristic(Characteristic.SupportedRTPConfiguration)
+              .on('get', function(callback) {
+                //callback(null, self.supportedRTPConfiguration);
+              })
+            .getCharacteristic(Characteristic.StreamingStatus)
+              .on('get', function(callback) {
+                //var data = tlv.encode( 0x01, self.streamStatus );
+                //callback(null, data.toString('base64'));
+              })
+            .getCharacteristic(Characteristic.SupportedAudioStreamConfiguration)
+              .on('get', function(callback) {
+                //callback(null, self.supportedAudioStreamConfiguration);
+              })
+            .getCharacteristic(Characteristic.SelectedStreamConfiguration)
+              .on('get', function(callback) {
+                debug('Read SelectedStreamConfiguration');
+                //callback(null, self.selectedConfiguration);
+              })
+              .on('set',function(value, callback, context, connectionID) {
+                debug('Write SelectedStreamConfiguration');
+                //self._handleSelectedStreamConfigurationWrite(value, callback, connectionID);
+              })
+            .getCharacteristic(Characteristic.SetupEndpoints)
+              .on('get', function(callback) {
+                //self._handleSetupRead(callback);
+              })
+              .on('set', function(value, callback) {
+                //self._handleSetupWrite(value, callback);
+              })
+
+
+
+
+
+
+
             device.addService(Service.Microphone);
+            //cameraAccessory.setAccessory(device);
         } else {
           device.addService(this.serviceConvertSStoHK(ssAccessory.type));
           device.getService(this.serviceConvertSStoHK(ssAccessory.type)).setCharacteristic(Characteristic.StatusLowBattery, ssAccessory.flags.lowBattery);
@@ -243,6 +327,11 @@ class SimpliSafe {
         this.api.registerPlatformAccessories("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", [device]);
       
       };
+
+      device.on('identify', function(paired, callback) {
+        this.log(`${device.displayName} identified and added.`);
+        callback(); // success
+      });
 
     };
   };// End Of Function updateSS 
