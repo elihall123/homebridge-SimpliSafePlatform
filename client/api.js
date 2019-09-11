@@ -1,7 +1,8 @@
 var websession = require('https');
+
 var fs = require('fs');
 var vm = require('vm');
-    
+var io = require("socket.io-client");
 
 var _access_token;
 var _access_token_expire;
@@ -26,7 +27,7 @@ module.exports = class API {
     self._refresh_token = resp.refresh_token;
   };//End Of Function _authenticate
 
-  async _get_User_ID (){
+  async _get_UserID (){
     var self = this;
     var resp = await self.request({method:'GET',endpoint: 'api/authCheck'})
     self.user_id = resp['userId'];
@@ -60,41 +61,95 @@ module.exports = class API {
     self.user_id;
     self.uuid = uuid4();
     self._refresh_token = '';
-    self.sensors = {};
     self._actively_refreshing = false;
     self.cameras = {};
-    self.readied = false;
-    self.SensorTypes = {
-      /*Commented out sensors not used by Homebridge and yes I know the siren could be a speaker*/
-      0:'SecuritySystem',
-      /*1:'keypad',
-      2:'keychain',
-      3:'panic_button',*/
-      4:'MotionSensor',
-      5:'ContactSensor',
-      6:'GlassBreakSensor',
-      7:'CarbonMonoxideSensor',
-      8:'SmokeSensor',
-      9:'LeakSensor',
-      10:'TemperatureSensor',
-      /*13:'siren',
-      99:'unknown',*/
-
-      'SecuritySystem': 0,
-      /*'keypad': 1,
-      'keychain': 2,
-      'panic_button': 3,*/
-      'MotionSensor': 4,
-      'ContactSensor': 5,
-      'GlassBreakSensor': 6,
-      'CarbonMonoxideSensor': 7,
-      'SmokeSensor': 8,
-      'LeakSensor': 9,
-      'TemperatureSensor': 10,
-      /*'siren': 13,
-      'unknown': 99*/
+    self.ssDeviceIds = {
+      unknown: -1,
+      baseStation: 0,
+      keypad: 1,
+      keychainRemote: 2,
+      panicButton: 3,
+      motionSensor: 4,
+      entrySensor: 5,
+      glassbreakSensor: 6,
+      coDetector: 7,
+      smokeDetector: 8,
+      waterSensor: 9,
+      freezeSensor: 10,
+      siren: 11,
+      camera: 1e3,
+      nest: 2e3
     };
 
+    this.ssSystemStates= {
+      unknown: "unknown",
+      off: "off",
+      home: "home",
+      away: "away",
+      alarm: "alarm",
+      home_count: "home_count",
+      away_count: "away_count",
+      alarm_count: "alarm_count"
+    };
+
+    this.ssEventContactIds= {
+      unknown: "0000",
+      alarmSmokeDetectorTriggered: "1110",
+      alarmWaterSensorTriggered: "1154",
+      alarmFreezeSensorTriggered: "1159",
+      alarmCoSensorTriggered: "1162",
+      alarmEntrySensorTriggered: "1134",
+      alarmMotionOrGlassbreakSensorTriggered: "1132",
+      alarmPanicButtonTriggered: "1120",
+      alarmCanceled: "1406",
+      alarmSmokeDetectorStopped: "3110",
+      alarmWaterSensorStopped: "3154",
+      alarmFreezeSensorStopped: "3159",
+      alarmCoSensorStopped: "3162",
+      systemPowerOutage: "1301",
+      systemPowerRestored: "3301",
+      systemInterferenceDetected: "1344",
+      systemInterferenceResolved: "3344",
+      sensorError: "1381",
+      sensorRestored: "3381",
+      systemArmed: "3400",
+      systemArmedHome: "3441",
+      systemArmedAway: "3401",
+      systemDisarmed: "1400",
+      alertSecret: "1409",
+      userRecording: "1609",
+      cameraRecording: "1170",
+      doorbellRang: "1458",
+      testSignalReceivedUser: "1601",
+      testSignalReceivedSensor: "1604",
+      testSignalReceivedAuto: "1602",
+      alarmOther: "1140",
+      alarmHeatSensorTriggered: "1158",
+      alarmHeatSensorStopped: "3158",
+      medicalAlarm: "1100",
+      systemAwayRemote: "3407",
+      systemHome2: "3491",
+      systemAway2: "3481",
+      systemAway2Remote: "3487",
+      batteryLow: "1302",
+      batteryRestored: "3302",
+      wiFiOutage: "1350",
+      wiFiRestored: "3350",
+      sensorPaired: "1531",
+      otaDownloaded: "1416",
+      entryDelay: "1429",
+      warningSensorOpen: "1426",
+      systemOff: "1407",
+      systemHomeCount: "9441",
+      systemAwayCount: "9401",
+      systemAwayCountRemote: "9407",
+      sensorAdded: "1531",
+      sensorNamed: "1533",
+      wiFiUpdateSuccess: "3360",
+      wiFiUpdateFailure: "1360"
+    };
+    
+    self.API_Config();
   };//End Of Function Constructor
 
   async get_Alarm_State() {
@@ -131,7 +186,6 @@ module.exports = class API {
     var self = this;
     try{
       var resp = await self.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
-      if (resp >= 400) throw('Access Forbidden. Please wait an hour and try again. Error: ' + resp);
       for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
             self.subId = system_data.sid;
@@ -150,93 +204,117 @@ module.exports = class API {
 
   async get_Sensors(cached = true) {
     var self = this;
-    var parsedBody = await self.request({
+    var resp = await self.request({
       method:'GET',
       endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
       params:{'forceUpdate': (cached==false).toString().toLowerCase()} //false = coming from cache
     })
-    //Check for a successful refresh on sensors --- on 409 send old data
-    if (!parsedBody.success) return self.sensors;
-    for (var sensor_data of parsedBody.sensors) {
-      self.sensors[sensor_data['serial']] = sensor_data;
-    };
-    return self.sensors;
+    return resp.sensors;
   };//End Of Function get_Sensors
 
   async login_via_credentials(password){
     //Create an API object from a email address and password.
       var self = this;
       await self._Authenticate({'grant_type': 'password', 'username': _email, 'password': password});
-      await self._get_User_ID();
-      await self.get_System();
-      await self.get_Sensors();
-      self.readied = true;
-      //self.websocket();
+      await self._get_UserID();
       return;
   };//End Of Function login_via_credentials
   
-  ssEvent(){
+  async get_SokectEvents(callback) {
     var self = this;
-    self.log(e);
-  };//End Of Function ssEvent
+    /*        DATA: {
+            "eventTimestamp":1567686989,
+            "eventCid":9407,
+            "zoneCid":"0",
+            "sensorType":0,
+            "sensorSerial":"",
+            "account":"",
+            "userId":,
+            "sid":,
+            "info":"Exit Delay Countdown Triggered for Away Mode Remotely",
+            "pinName":"",
+            "sensorName":"",
+            "messageSubject":"",
+            "messageBody":"",
+            "eventType":"activityQuiet",
+            "timezone":0,
+            "locationOffset":-240,
+            "expires":60,
+            "internal":{"dispatcher":"cops","shouldNotify":false},
+            "senderId":"wifi",
+            "eventId":6170934771,
+            "serviceFeatures":{"monitoring":true,"alerts":true,"online":true,"video":false,"hazard":false},
+            "copsVideoOptIn":true,
+            "video":{
+              "uuid":{"clipId":stampdt,"preroll":5,"postroll":45,"cameraName":"name"},
+              "uuid":{"clipId":stampdt,"preroll":5,"postroll":45,"cameraName":"name"},
+              "uuid":{"clipId":stampdt,"preroll":5,"postroll":45,"cameraName":"name"}
+            },
+            "exitDelay":60
+          }
+*/
 
-  ssHiddenEvent(){
-    var self = this;
-    self.log(e);
-  };//End Of Function ssHiddenEvent
-  
-  async websocket(){
-    var self = this;
-    try {
-      /*var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.min.js'), {METHOD: 'GET'})
-          await fs.writeFileSync('./socket.io.min.js', resp.body, (err) => {
-            if (err) throw err;
-          });
-          var resp = await webResponse(new URL('https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.5.1/socket.io.js'), {METHOD: 'GET'})
-          await fs.writeFileSync('./socket.io.js', resp.body, (err) => {
-            if (err) throw err;
-          });*/
-        var m = null, g = [], r = self.simplisafe.webapp, io = require('socket.io-client');
-        /*fs.unlink('./socket.io.min.js', (err) => {
-          if (err) throw err;
-        });
-        fs.unlink('./socket.io.js', (err) => {
-          if (err) throw err;
-        });*/
-        m && (m.disconnect(), m = null);
-        var n = r.apiPath + "/user/" + self.user_id;
-        var AWSALB = self.cookie.toString().split(';', 1);
-        var cookie = AWSALB + '; ssOauthAccessExpires=' + _access_token_expire + '; ssOauthAccessToken=' + encodeURIComponent(_access_token) + ';'
+    if (!self.socket) {
+        try {
+            self.socket = io(`${self.simplisafe.webapp.apiHost}${self.simplisafe.webapp.apiPath}/user/${self.user_id}`, {
+              path: '/socket.io',
+              query: {
+                ns: `/v1/user/${self.user_id}`,
+                accessToken: _access_token
+              },
+              transports: ['websocket']
+            });
 
-        m = io.connect(r.apiHost + n, {
-            query: "ns=" + n + "&accessToken=" + encodeURIComponent(_access_token),
-            resource: "socket.io",
-            reconnection: !0,
-            upgrade: !0,
-            secure: !0,
-            transport: "polling",
-            rejectUnauthorized: false
-        }),
-        m.on("connect", socket => {
-          self.log('Connect', socket);
-        }),
-        m.on("event", self.ssEvent),
-        m.on("hiddenEvent", self.ssHiddenEvent), 
-        m.on('connect_error', function(err){
-          self.log('Connection error:', err, m);
-        }),
-        m.on('connection', socket => {
-          self.log('Connection', socket);
-        }),
-        m.on('disconnect', socket =>{
-          self.log('\n\n\n\n Disconnect\n', socket, '\n', m['io'])
-        })
-        //m.sendM'40' + r.apiPath + '/user/' + self.user_id + '?ns=/v1/user/' + self.user_id +'&accessToken=' + encodeURIComponent(_access_token))
-    } catch (e) {
-        self.log('websocket ',e);
+            self.socket.on('connect', () => {
+              self.log('Event socket is up and monitoring');
+            });
+
+            self.socket.on('connect_error', () => {
+                self.log("Socket", 'Connect_error', err);
+                self.socket = null;
+            });
+
+            self.socket.on('connect_timeout', () => {
+                self.log("Socket", 'Connect_timeout');
+                self.socket = null;
+            });
+
+            self.socket.on('error', err => {
+              self.log("Socket", 'error', err);
+              self.socket = null;
+            });
+
+            self.socket.on('disconnect', reason => {
+                if (reason === 'transport close') {
+                  //self.log("Socket", 'disconnect');
+                }
+                self.socket = null;
+            });
+
+            self.socket.on('reconnect_failed', () => {
+              //self.log("Socket", 'failed reconnect');
+              self.socket = null;
+            });
+
+            self.socket.on('hiddenEvent', data => {
+              callback(data);
+            });    
+
+            self.socket.on('event', data => {
+              //self.log("Socket", data);
+              callback(data);
+            });
+
+            self.socket.on('cameraEvent', data => {
+              //self.log("Socket", 'camera', data);
+            });
+
+        } catch (err) {
+            throw err;
+        }
     }
-  };//End Of Function websocket
-  
+  };//End of Function get_SokectEvents
+
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
     if (!self.simplisafe) await self.API_Config();
@@ -269,7 +347,7 @@ module.exports = class API {
     }
     var resp = await webResponse(url, options, data);
     self.cookie = resp.cookie;
-    if (resp.statusCode >= 400) {
+    if (resp.statusCode == 401 && !self._actively_refreshing) {
       self._actively_refreshing = true;
       await self._Refresh_Access_Token(self._refresh_token);
       return resp.statusCode;
