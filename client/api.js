@@ -269,7 +269,7 @@ module.exports = class API {
               self.log('Event socket is up and monitoring');
             });
 
-            self.socket.on('connect_error', () => {
+            self.socket.on('connect_error', err => {
                 self.log("Socket", 'Connect_error', err);
                 self.socket = null;
             });
@@ -286,7 +286,7 @@ module.exports = class API {
 
             self.socket.on('disconnect', reason => {
                 if (reason === 'transport close') {
-                  //self.log("Socket", 'disconnect');
+                  callback('DISCONNECT');
                 }
                 self.socket = null;
             });
