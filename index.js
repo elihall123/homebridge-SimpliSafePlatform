@@ -1,6 +1,7 @@
 //homebridge-platform-simplisafe
-var API = require('./client/api');
-var Accessory, Service, Characteristic, UUIDGen, User;
+const { API, CameraSource } = require('./client/api');
+
+var Accessory, Service, Characteristic, UUIDGen, User, hap, StreamController;
 var ss; //SimpliSafe Client
 
 module.exports = homebridge => {
@@ -9,6 +10,8 @@ module.exports = homebridge => {
   Characteristic = homebridge.hap.Characteristic;
   UUIDGen = homebridge.hap.uuid;
   User = homebridge.user;
+  hap = homebridge.hap;
+  StreamController = homebridge.hap.StreamController;
     
   homebridge.registerPlatform("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", SimpliSafe, true);
 }
@@ -58,7 +61,7 @@ class SimpliSafe {
               ss.login_via_credentials(config.password);
               this.SocketEvents;
             }
-
+            if (!data.eventCid) return;
             let accessory;
 
             if (data.sensorType == ss.ssDeviceIds.baseStation) {
@@ -166,7 +169,20 @@ class SimpliSafe {
       });
     };
   };//End Of Function SimpliSafe 
- 
+  
+  AccCatConvertSStoHK(type){
+    switch (type) {
+      case ss.ssDeviceIds.baseStation:
+        return (hap.Accessory.Categories.SECURITY_SYSTEM);
+      case ss.ssDeviceIds.freezeSensor:
+        return (hap.Accessory.Categories.THERMOSTAT);
+      case ss.ssDeviceIds.Camera:
+        return (hap.Accessory.Categories.IP_CAMERA);
+      default:
+        return (hap.Accessory.Categories.SENSOR);
+    };
+  }
+
   serviceConvertSStoHK(type){
     switch (type) {
       case ss.ssDeviceIds.coDetector:
@@ -199,7 +215,8 @@ class SimpliSafe {
     };
     
     for (let camera of system.cameras){
-      this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.Camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.Camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}});
+      console.log(camera.uuid);
+      this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}, config: camera.cameraSettings.admin});
     }
 
   };//End Of Function loadSS
@@ -208,128 +225,85 @@ class SimpliSafe {
     for (let ssAccessory of this.ssAccessories){
 
       let device = this.accessories.find(accessory => accessory.UUID == ssAccessory.uuid);
-      
-      if (device) {
-        device.reachable = true;
 
-        if (device.getService(Service.SecuritySystem)) {
-          device.getService(Service.SecuritySystem)
-            .getCharacteristic(Characteristic.SecuritySystemTargetState)
-            .on('set', async (state, callback)=>{
-              //platform.setAlarmState(state, callback);
-              if (device.reachable) {
-                switch (state) {
-                  case Characteristic.SecuritySystemTargetState.STAY_ARM:
-                    await ss.set_Alarm_State("home");
-                    break;
-                  case Characteristic.SecuritySystemTargetState.AWAY_ARM :
-                    await ss.set_Alarm_State("away");
-                    break;
-                  case Characteristic.SecuritySystemTargetState.DISARM:
-                    await ss.set_Alarm_State("off");
-                    break;
-                };                
-                callback(null, state);
-              } else {
-                callback("no_response");
-              };
-            });
-          };
-      } else {
-        let device  = new Accessory(ssAccessory.name, ssAccessory.uuid);
+      if (!device) {
+        device  = new Accessory(ssAccessory.name, ssAccessory.uuid, this.AccCatConvertSStoHK(ssAccessory.type));
         device.getService(Service.AccessoryInformation)
           .setCharacteristic(Characteristic.SerialNumber, ssAccessory.serial)
           .setCharacteristic(Characteristic.Manufacturer, 'SimpliSafe')
           .setCharacteristic(Characteristic.Model, Object.keys(ss.ssDeviceIds).find(key => ss.ssDeviceIds[key] === ssAccessory.type)); 
-        device.reachable = true;
-
-        if (ssAccessory.type === ss.ssDeviceIds.baseStation) {
-          device.addService(Service.SecuritySystem);
-          device.getService(Service.SecuritySystem)
-            .getCharacteristic(Characteristic.SecuritySystemCurrentState)
-            .setProps({validValues: [Characteristic.SecuritySystemCurrentState.STAY_ARM, Characteristic.SecuritySystemCurrentState.AWAY_ARM, Characteristic.SecuritySystemCurrentState.DISARMED, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED]})
-
-          switch(ssAccessory.status.triggered.toLowerCase()) {
-            case "off":
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);
-                break;
-            case "home":
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM);
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);
-                break;
-            case "away":
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM);
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM);
-                break;
-            case "alarm":
-                device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
-                break;
-          };
-
-          device.getService(Service.SecuritySystem)
-            .getCharacteristic(Characteristic.SecuritySystemTargetState)
-            .setProps({validValues: [Characteristic.SecuritySystemTargetState.STAY_ARM, Characteristic.SecuritySystemTargetState.AWAY_ARM, Characteristic.SecuritySystemTargetState.DISARM]});
-          
-        } else  if (ssAccessory.type === ss.ssDeviceIds.Camera){
-            //const cameraAccessory = new _simplicam.default(camera.cameraSettings.cameraName || 'Camera', camera.uuid, camera, this.cameraOptions, this.log, this.simplisafe, Service, Characteristic, UUIDGen, StreamController);
-            device.addService(Service.CameraRTPStreamManagement);
-            device.getService(Service.CameraRTPStreamManagement)
-            .getCharacteristic(Characteristic.SupportedVideoStreamConfiguration)
-              .on('get', function(callback) {
-                //callback(null, self.supportedVideoStreamConfiguration);
-              })
-            .getCharacteristic(Characteristic.SupportedRTPConfiguration)
-              .on('get', function(callback) {
-                //callback(null, self.supportedRTPConfiguration);
-              })
-            .getCharacteristic(Characteristic.StreamingStatus)
-              .on('get', function(callback) {
-                //var data = tlv.encode( 0x01, self.streamStatus );
-                //callback(null, data.toString('base64'));
-              })
-            .getCharacteristic(Characteristic.SupportedAudioStreamConfiguration)
-              .on('get', function(callback) {
-                //callback(null, self.supportedAudioStreamConfiguration);
-              })
-            .getCharacteristic(Characteristic.SelectedStreamConfiguration)
-              .on('get', function(callback) {
-                debug('Read SelectedStreamConfiguration');
-                //callback(null, self.selectedConfiguration);
-              })
-              .on('set',function(value, callback, context, connectionID) {
-                debug('Write SelectedStreamConfiguration');
-                //self._handleSelectedStreamConfigurationWrite(value, callback, connectionID);
-              })
-            .getCharacteristic(Characteristic.SetupEndpoints)
-              .on('get', function(callback) {
-                //self._handleSetupRead(callback);
-              })
-              .on('set', function(value, callback) {
-                //self._handleSetupWrite(value, callback);
-              })
+          this.log('publishing a new this accessory', device.displayName);
+          this.accessories.push(device);
+          await this.api.registerPlatformAccessories("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", [device]);  
+      };      
 
 
+      if (ssAccessory.type === ss.ssDeviceIds.baseStation) {
+        if (!device.getService(Service.SecuritySystem)) device.addService(Service.SecuritySystem);
+        let ssService = device.getService(Service.SecuritySystem);
+        ssService.getCharacteristic(Characteristic.SecuritySystemCurrentState)
+          .setProps({validValues: [Characteristic.SecuritySystemCurrentState.STAY_ARM, Characteristic.SecuritySystemCurrentState.AWAY_ARM, Characteristic.SecuritySystemCurrentState.DISARMED, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED]})
 
+        switch(ssAccessory.status.triggered.toLowerCase()) {
+          case "off":
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);
+              break;
+          case "home":
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM);
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);
+              break;
+          case "away":
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM);
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM);
+              break;
+          case "alarm":
+              device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
+              break;
+        };
 
+        ssService.getCharacteristic(Characteristic.SecuritySystemTargetState)
+          .setProps({validValues: [Characteristic.SecuritySystemTargetState.STAY_ARM, Characteristic.SecuritySystemTargetState.AWAY_ARM, Characteristic.SecuritySystemTargetState.DISARM]});
 
+        ssService.getCharacteristic(Characteristic.SecuritySystemTargetState)
+          .on('set', async (state, callback)=>{
+            //platform.setAlarmState(state, callback);
+            if (device.reachable) {
+              switch (state) {
+                case Characteristic.SecuritySystemTargetState.STAY_ARM:
+                  await ss.set_Alarm_State("home");
+                  break;
+                case Characteristic.SecuritySystemTargetState.AWAY_ARM :
+                  await ss.set_Alarm_State("away");
+                  break;
+                case Characteristic.SecuritySystemTargetState.DISARM:
+                  await ss.set_Alarm_State("off");
+                  break;
+              };                
+              callback(null, state);
+            } else {
+              callback("no_response");
+            };
+          });
+        
+      } else  if (ssAccessory.type === ss.ssDeviceIds.camera){
+        if (!device.getService(Service.CameraControl)) device.addService(Service.CameraControl);
+        if (!device.getService(Service.Microphone)) device.addService(Service.Microphone);
+        device.services.filter(service => service.UUID === Service.CameraRTPStreamManagement.UUID).map(service => {
+          device.removeService(service);
+        });
+    
+        device.configureCameraSource(new CameraSource(ssAccessory, UUIDGen, StreamController, this.log));
+            
+      } else {
+        if (!device.getService(this.serviceConvertSStoHK(ssAccessory.type))) device.addService(this.serviceConvertSStoHK(ssAccessory.type));
+        device.getService(this.serviceConvertSStoHK(ssAccessory.type)).setCharacteristic(Characteristic.StatusLowBattery, ssAccessory.flags.lowBattery);
 
-
-            device.addService(Service.Microphone);
-            //cameraAccessory.setAccessory(device);
-        } else {
-          device.addService(this.serviceConvertSStoHK(ssAccessory.type));
-          device.getService(this.serviceConvertSStoHK(ssAccessory.type)).setCharacteristic(Characteristic.StatusLowBattery, ssAccessory.flags.lowBattery);
-        }
-
-        this.log('publishing a new this accessory', device.displayName);
-        this.accessories.push(device);
-        this.api.registerPlatformAccessories("homebridge-simplisafeplatform", "homebridge-simplisafeplatform", [device]);
-      
       };
 
+      device.reachable = true;
       device.on('identify', function(paired, callback) {
-        this.log(`${device.displayName} identified and added.`);
+        console.log(`${device.displayName} identified and added.`);
         callback(); // success
       });
 
