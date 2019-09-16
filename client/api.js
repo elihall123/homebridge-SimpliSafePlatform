@@ -1,15 +1,21 @@
 var websession = require('https');
-
-var fs = require('fs');
 var vm = require('vm');
+
 var io = require("socket.io-client");
+
+var ffmpeg = require("@ffmpeg-installer/ffmpeg")
+var dns = require("dns");
+var crypto = require("crypto");
+var spawn = require('child_process').spawn;
 
 var _access_token;
 var _access_token_expire;
 var _access_token_type;
 var _email;
+var APICFGS;
+var LocalIP;
 
-module.exports = class API {
+class API {
   //Class SimpliSafe API
   async _Authenticate(payload_data){
     //Request token data...
@@ -41,16 +47,6 @@ module.exports = class API {
     self._actively_refreshing = false;
   };//End Of Function _refresh_access_token
 
-  async API_Config() {
-    var self = this;
-    var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'})
-    resp = resp.body.replace('})(window);', 'return g;});')
-                .replace('var a=', 'var a=g.')
-                .replace(';', '');
-    let APICFGS = vm.runInThisContext(resp);
-    APICFGS(self);
-  };//End Of Function API_Config
-
   constructor(SerialNumber, email, log) {
     //Initialize.
     var self = this;
@@ -77,11 +73,11 @@ module.exports = class API {
       waterSensor: 9,
       freezeSensor: 10,
       siren: 11,
-      camera: 1e3,
-      nest: 2e3
+      camera: 1000,
+      nest: 2000
     };
 
-    this.ssSystemStates= {
+    self.ssSystemStates= {
       unknown: "unknown",
       off: "off",
       home: "home",
@@ -92,7 +88,7 @@ module.exports = class API {
       alarm_count: "alarm_count"
     };
 
-    this.ssEventContactIds= {
+    self.ssEventContactIds= {
       unknown: "0000",
       alarmSmokeDetectorTriggered: "1110",
       alarmWaterSensorTriggered: "1154",
@@ -149,7 +145,7 @@ module.exports = class API {
       wiFiUpdateFailure: "1360"
     };
     
-    self.API_Config();
+
   };//End Of Function Constructor
 
   async get_Alarm_State() {
@@ -215,6 +211,9 @@ module.exports = class API {
   async login_via_credentials(password){
     //Create an API object from a email address and password.
       var self = this;
+      if (!APICFGS) APICFGS = await ssAPICFGS();
+      APICFGS(self);
+  
       await self._Authenticate({'grant_type': 'password', 'username': _email, 'password': password});
       await self._get_UserID();
       return;
@@ -282,13 +281,15 @@ module.exports = class API {
             self.socket.on('error', err => {
               self.log("Socket", 'error', err);
               self.socket = null;
+              callback('DISCONNECT');
             });
 
             self.socket.on('disconnect', reason => {
-                if (reason === 'transport close') {
+              self.socket = null;  
+              if (reason === 'transport close') {
                   callback('DISCONNECT');
                 }
-                self.socket = null;
+                
             });
 
             self.socket.on('reconnect_failed', () => {
@@ -317,7 +318,6 @@ module.exports = class API {
 
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
-    if (!self.simplisafe) await self.API_Config();
     var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
 
     if (_access_token_expire && Date.now() >= _access_token_expire && !self._actively_refreshing){
@@ -366,12 +366,496 @@ module.exports = class API {
 
 };//End Of Class API
 
+class CameraSource {
+  constructor(cameraConfig, UUIDGen, StreamController, log) {
+    this.cameraConfig = cameraConfig;
+    this.serverIpAddress = null;
+    this.UUIDGen = UUIDGen;
+    this.StreamController = StreamController;
+    this.log = log;
+    this.services = [];
+    this.streamControllers = [];
+    this.pendingSessions = {};
+    this.ongoingSessions = {};
+    let _fps = this.cameraConfig.config.fps;
+    this.options = {
+      proxy: false,
+      srtp: true,
+      video: {
+        resolutions: [[320, 240, _fps], [320, 240, 15], [320, 180, _fps], [320, 180, 15], [480, 360, _fps], [480, 270, _fps], [640, 480, _fps], [640, 360, _fps], [1280, 720, _fps]],
+        codec: {
+          profiles: [0, 1, 2],
+          levels: [0, 1, 2]
+        }
+      },
+      audio: {
+        codecs: [{
+          type: 'OPUS',
+          samplerate: 16
+        }]
+      }
+    };
+    this.createStreamControllers(2, this.options);
+    if (!APICFGS) APICFGS = ssAPICFGS();
+    APICFGS(this);
+
+  }
+
+  handleStreamRequest = async (request) => {
+    let sessionId = request.sessionID;
+
+    if (sessionId) {
+      let sessionIdentifier = this.UUIDGen.unparse(sessionId);
+
+      if (request.type == 'start') {
+        let sessionInfo = this.pendingSessions[sessionIdentifier];
+
+        if (sessionInfo) {
+          let width = 1280;
+          let height = 720;
+          let fps = this.cameraConfig.config.fps;
+          let videoBitrate = this.cameraConfig.config.bitRate;
+          let audioBitrate = 32;
+          let audioSamplerate = 24;
+
+          if (request.video) {
+            width = request.video.width;
+            height = request.video.height;
+
+            if (request.video.fps < fps) {
+              fps = request.video.fps;
+            }
+
+            if (request.video.max_bit_rate < videoBitrate) {
+              videoBitrate = request.video.max_bit_rate;
+            }
+          }
+
+          if (request.audio) {
+            audioBitrate = request.audio.max_bit_rate;
+            audioSamplerate = request.audio.sample_rate;
+          }
+
+          let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.cameraConfig.serial}/flv?x=${width}`]];
+          let videoArgs = [['-map', '0:0'], ['-vcodec', 'libx264'], ['-tune', 'zerolatency'], ['-preset', 'superfast'], ['-pix_fmt', 'yuv420p'], ['-r', fps], ['-f', 'rawvideo'], ['-vf', `scale=${width}:${height}`], ['-b:v', `${videoBitrate}k`], ['-bufsize', `${videoBitrate}k`], ['-maxrate', `${videoBitrate}k`], ['-payload_type', 99], ['-ssrc', sessionInfo.video_ssrc], ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'], ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')], [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]];
+          let audioArgs = [['-map', '0:1'], ['-acodec', 'libopus'], ['-flags', '+global_header'], ['-f', 'null'], ['-ar', `${audioSamplerate}k`], ['-b:a', `${audioBitrate}k`], ['-bufsize', `${audioBitrate}k`], ['-payload_type', 110], ['-ssrc', sessionInfo.audio_ssrc], ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'], ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')], [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]]; 
+          
+          let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
+            if (typeof a == 'string') {
+              return a.trim();
+            } else {
+              return a;
+            }
+          })));
+
+          let video = [].concat(...videoArgs.map(arg => arg.map(a => {
+            if (typeof a == 'string') {
+              return a.trim();
+            } else {
+              return a;
+            }
+          })));
+
+          let audio = [].concat(...audioArgs.map(arg => arg.map(a => {
+            if (typeof a == 'string') {
+              return a.trim();
+            } else {
+              return a;
+            }
+          })));
+
+          let cmd = spawn(ffmpeg.path, [...source, ...video, ...audio], {env: process.env});
+
+          this.log(`Start streaming video from ${this.cameraConfig.name}`);
+          cmd.stderr.on('data', data => {
+            //this.log(data.toString());
+          });
+          cmd.on('error', err => {
+            this.log('An error occurred while making stream request');
+            this.log(err);
+          });
+          cmd.on('close', code => {
+            switch (code) {
+              case null:
+              case 0:
+              case 255:
+                //this.log('Stopped streaming');
+                break;
+
+              default:
+                this.log(`Error: FFmpeg exited with code ${code}`);
+                this.streamControllers.filter(stream => stream.sessionIdentifier === sessionId).map(stream => stream.forceStop());
+                break;
+            }
+          });
+          this.ongoingSessions[sessionIdentifier] = cmd;
+        }
+
+        delete this.pendingSessions[sessionIdentifier];
+      } else if (request.type == 'stop') {
+        let cmd = this.ongoingSessions[sessionIdentifier];
+
+        if (cmd) {
+          cmd.kill('SIGTERM');
+        }
+
+        delete this.ongoingSessions[sessionIdentifier];
+      }
+    }
+  };
+
+
+  handleCloseConnection(connId) {
+    this.streamControllers.forEach(controller => {
+      controller.handleCloseConnection(connId);
+    });
+  }
+
+  handleSnapshotRequest(request, callback) {
+    this.log('Snapshot request. Not yet supported');
+    callback(new Error('Snapshots not yet supported'));
+  }
+
+  prepareStream(request, callback) {
+    let response = {};
+    let sessionInfo = {
+      address: request.targetAddress
+    };
+    let sessionID = request.sessionID;
+
+    if (request.video) {
+      let ssrcSource = crypto.randomBytes(4);
+
+      ssrcSource[0] = 0;
+      let ssrc = ssrcSource.readInt32BE(0, true);
+      response.video = {
+        port: request.video.port,
+        ssrc: ssrc,
+        srtp_key: request.video.srtp_key,
+        srtp_salt: request.video.srtp_salt
+      };
+      sessionInfo.video_port = request.video.port;
+      sessionInfo.video_srtp = Buffer.concat([request.video.srtp_key, request.video.srtp_salt]);
+      sessionInfo.video_ssrc = ssrc;
+    }
+
+    if (request.audio) {
+      let ssrcSource = crypto.randomBytes(4);
+
+      ssrcSource[0] = 0;
+      let ssrc = ssrcSource.readInt32BE(0, true);
+      response.audio = {
+        port: request.audio.port,
+        ssrc: ssrc,
+        srtp_key: request.audio.srtp_key,
+        srtp_salt: request.audio.srtp_salt
+      };
+      sessionInfo.audio_port = request.audio.port;
+      sessionInfo.audio_srtp = Buffer.concat([request.audio.srtp_key, request.audio.srtp_salt]);
+      sessionInfo.audio_ssrc = ssrc;
+    }
+
+
+    response.address = {
+      address: LocalIP,
+      type: getIPVersion(LocalIP)
+    };
+
+    this.pendingSessions[this.UUIDGen.unparse(sessionID)] = sessionInfo;
+    callback(response);
+  }
+
+  createStreamControllers(maxStreams, options) {
+    for (let i = 0; i < maxStreams; i++) {
+      let streamController = new this.StreamController(i, options, this);
+      this.services.push(streamController.service);
+      this.streamControllers.push(streamController);
+    }
+  }
+
+}
+
+
+
+
+
+
+
+
+
+
+/*class CameraSource {
+
+  constructor(cameraConfig, UUIDGen, StreamController, log) {
+      this.cameraConfig = cameraConfig;
+      this.serverIpAddress = null;
+      this.UUIDGen = UUIDGen;
+      this.StreamController = StreamController;
+      this.log = log;
+
+      this.services = [];
+      this.streamControllers = [];
+      this.pendingSessions = {};
+      this.ongoingSessions = {};
+
+      this.fps = this.cameraConfig.config.fps;
+      this.options = {
+          proxy: false,
+          srtp: true,
+          video: {
+              resolutions: [[320, 240, this.fps],[320, 240, 15],[320, 180, this.fps],[320, 180, 15],[480, 360, this.fps],[480, 270, this.fps],[640, 480, this.fps],[640, 360, this.fps],[1280, 720, this.fps]],
+              codec: {profiles: [0, 1, 2],levels: [0, 1, 2]}
+          },
+          audio: {
+              codecs: [{type: 'OPUS',samplerate: 16}]
+          }
+      };
+
+      this.createStreamControllers(2, this.options);
+      if (!APICFGS) APICFGS = ssAPICFGS();
+      APICFGS(this);
+
+      //this.serverIpAddress = getIP(this.simplisafe.webapp.mediaHost.toLowerCase().replace('https://',''));
+  };// End of Function Constructor
+
+  handleCloseConnection(connId) {
+      this.streamControllers.forEach(controller => {
+          controller.handleCloseConnection(connId);
+      });
+  };// End of Function handleCloseConnection
+
+  handleSnapshotRequest(request, callback) {
+      this.log('Snapshot request. Not yet supported');
+      callback(new Error('Snapshots not yet supported'));
+    };// End of Function handleSnapshotRequest
+
+  prepareStream(request, callback) {
+      let response = {};
+      let sessionInfo = {
+          address: request.targetAddress
+      };
+
+      let sessionID = request.sessionID;
+
+      if (request.video) {
+          let ssrcSource = crypto.randomBytes(4);
+          ssrcSource[0] = 0;
+          let ssrc = ssrcSource.readInt32BE(0, true);
+
+          response.video = {
+              port: request.video.port,
+              ssrc: ssrc,
+              srtp_key: request.video.srtp_key,
+              srtp_salt: request.video.srtp_salt
+          };
+
+          sessionInfo.video_port = request.video.port;
+          sessionInfo.video_srtp = Buffer.concat([
+              request.video.srtp_key,
+              request.video.srtp_salt
+          ]);
+          sessionInfo.video_ssrc = ssrc;
+      }
+
+      if (request.audio) {
+          let ssrcSource = crypto.randomBytes(4);
+          ssrcSource[0] = 0;
+          let ssrc = ssrcSource.readInt32BE(0, true);
+
+          response.audio = {
+              port: request.audio.port,
+              ssrc: ssrc,
+              srtp_key: request.audio.srtp_key,
+              srtp_salt: request.audio.srtp_salt
+          };
+
+          sessionInfo.audio_port = request.audio.port;
+          sessionInfo.audio_srtp = Buffer.concat([
+              request.audio.srtp_key,
+              request.audio.srtp_salt
+          ]);
+          sessionInfo.audio_ssrc = ssrc;
+      }
+
+      response.address = {
+          address: LocalIP,
+          type: getIPVersion(LocalIP) ? 'v4' : 'v6'
+      };
+
+      this.pendingSessions[this.UUIDGen.unparse(sessionID)] = sessionInfo;
+
+      callback(response);
+    };// End of Function prepareStream
+
+  handleStreamRequest = async (request) => {
+      let sessionId = request.sessionID;
+
+      if (sessionId) {
+          let sessionIdentifier = this.UUIDGen.unparse(sessionId);
+
+          if (request.type == 'start') {
+              let sessionInfo = this.pendingSessions[sessionIdentifier];
+              if (sessionInfo) {
+                  let width = 1280;
+                  let height = 720;
+                  let videoBitrate = this.cameraConfig.config.bitRate;
+                  let audioBitrate = 32;
+                  let audioSamplerate = 24;
+
+                  if (request.video) {
+                      width = request.video.width;
+                      height = request.video.height;
+                      if (request.video.fps < this.fps) {
+                          this.fps = request.video.fps;
+                      }
+                      if (request.video.max_bit_rate < videoBitrate) {
+                          videoBitrate = request.video.max_bit_rate;
+                      }
+                  }
+
+                  if (request.audio) {
+                      audioBitrate = request.audio.max_bit_rate;
+                      audioSamplerate = request.audio.sample_rate;
+                  }
+
+                  let sourceArgs = [
+                      ['-re'],
+                      ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
+                      ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.cameraConfig.serial}/flv?x=${width}`]
+                  ];
+
+                  let videoArgs = [
+                      ['-map', '0:0'],
+                      ['-vcodec', 'libx264'],
+                      ['-tune', 'zerolatency'],
+                      ['-preset', 'superfast'],
+                      ['-pix_fmt', 'yuv420p'],
+                      ['-r', this.fps],
+                      ['-f', 'rawvideo'],
+                      ['-vf', `scale=${width}:${height}`],
+                      ['-b:v', `${videoBitrate}k`],
+                      ['-bufsize', `${videoBitrate}k`],
+                      ['-maxrate', `${videoBitrate}k`],
+                      ['-payload_type', 99],
+                      ['-ssrc', sessionInfo.video_ssrc],
+                      ['-f', 'rtp'],
+                      ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+                      ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
+                      [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]
+                  ];
+
+                  let audioArgs = [
+                      ['-map', '0:1'],
+                      ['-acodec', 'libopus'],
+                      ['-flags', '+global_header'],
+                      ['-f', 'null'],
+                      ['-ar', `${audioSamplerate}k`],
+                      ['-b:a', `${audioBitrate}k`],
+                      ['-bufsize', `${audioBitrate}k`],
+                      ['-payload_type', 110],
+                      ['-ssrc', sessionInfo.audio_ssrc],
+                      ['-f', 'rtp'],
+                      ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+                      ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
+                      [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]
+                  ];
+                  
+                  let ffmpegPath = ffmpeg.default.path;
+
+                  let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
+                      if (typeof a == 'string') {
+                          return a.trim();
+                      } else {
+                          return a;
+                      }
+                  })));
+
+                  let video = [].concat(...videoArgs.map(arg => arg.map(a => {
+                      if (typeof a == 'string') {
+                          return a.trim();
+                      } else {
+                          return a;
+                      }
+                  })));
+
+                  let audio = [].concat(...audioArgs.map(arg => arg.map(a => {
+                      if (typeof a == 'string') {
+                          return a.trim();
+                      } else {
+                          return a;
+                      }
+                  })));
+
+                  let cmd = spawn(ffmpegPath, [
+                      ...source,
+                      ...video,
+                      ...audio
+                  ], {
+                      env: process.env
+                  });
+
+                  this.log(`Start streaming video from ${this.cameraConfig.name}`);
+
+                  cmd.stderr.on('data', data => {
+                      this.log(data.toString());
+                  });
+
+                  cmd.on('error', err => {
+                      this.log('An error occurred while making stream request');
+                      this.log(err);
+                  });
+
+                  cmd.on('close', code => {
+                      switch (code) {
+                          case null:
+                          case 0:
+                          case 255:
+                              this.log('Stopped streaming');
+                              break;
+                          default:
+                              this.log(`Error: FFmpeg exited with code ${code}`);
+                              this.streamControllers
+                                  .filter(stream => stream.sessionIdentifier === sessionId)
+                                  .map(stream => stream.forceStop());
+                              break;
+                      }
+                  });
+
+                  this.ongoingSessions[sessionIdentifier] = cmd;
+              }
+
+              delete this.pendingSessions[sessionIdentifier];
+
+          } else if (request.type == 'stop') {
+              let cmd = this.ongoingSessions[sessionIdentifier];
+              if (cmd) {
+                  cmd.kill('SIGTERM');
+              }
+
+              delete this.ongoingSessions[sessionIdentifier];
+          }
+      }
+    };// End of Function handleStreamRequest
+
+  createStreamControllers(maxStreams, options) {
+      for (let i = 0; i < maxStreams; i++) {
+          let streamController = new this.StreamController(i, options, this);
+          this.services.push(streamController.service);
+          this.streamControllers.push(streamController);
+      }
+    };// End of Function createStreamControllers
+  
+};//End Of Class CameraSource
+
+
+*/
+
 function uuid4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
-};
+};// End of Function uuid4
 
 async function webResponse(url, options, data){
   return new Promise(async (resolve, reject) => {
@@ -416,7 +900,37 @@ async function webResponse(url, options, data){
       console.error(`problem with request: ${e.message}`);
     });
 
+
     if (data) req.write(JSON.stringify(data));
     req.end();
+    req.once('response', (res) => {
+      LocalIP = req.socket.localAddress;
+    });
   });
 };//End Of Function webResponse
+
+async function ssAPICFGS() {
+  var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'});
+  resp = resp.body.replace('})(window);', 'return g;});')
+              .replace('var a=', 'var a=g.')
+              .replace(';', '');
+  return vm.runInThisContext(resp);
+};
+
+function getIPVersion(Address) {
+  if (Address.toString().split('.').length == 4) {return 'v4'} else {return 'v6'};
+
+}
+
+async function getIP(Host){
+  let IPAddress;
+  await dns.lookup(host, function(err, result) {
+    IPAddress = result;
+ });
+ return IPAddress;
+}
+
+module.exports = {
+  API,
+  CameraSource
+}
