@@ -215,7 +215,6 @@ class SimpliSafe {
     };
     
     for (let camera of system.cameras){
-      console.log(camera.uuid);
       this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}, config: camera.cameraSettings.admin});
     }
 
