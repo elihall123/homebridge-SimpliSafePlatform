@@ -4,7 +4,7 @@ var vm = require('vm');
 var io = require("socket.io-client");
 
 var ffmpeg = require("@ffmpeg-installer/ffmpeg")
-var dns = require("dns");
+var dns = require("dns").promises;
 var crypto = require("crypto");
 var spawn = require('child_process').spawn;
 
@@ -435,8 +435,14 @@ class CameraSource {
             audioBitrate = request.audio.max_bit_rate;
             audioSamplerate = request.audio.sample_rate;
           }
+          try{            
+            this.serverIpAddress = await dns.lookup(this.simplisafe.webapp.mediaHost.replace('https://'));
+            this.serverIpAddress = this.serverIpAddress.address;
+          }catch(err){
+            console.error(err);
+          };          
 
-          let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.cameraConfig.serial}/flv?x=${width}`]];
+          let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.cameraConfig.serial}/flv?x=${width}`]];
           let videoArgs = [['-map', '0:0'], ['-vcodec', 'libx264'], ['-tune', 'zerolatency'], ['-preset', 'superfast'], ['-pix_fmt', 'yuv420p'], ['-r', fps], ['-f', 'rawvideo'], ['-vf', `scale=${width}:${height}`], ['-b:v', `${videoBitrate}k`], ['-bufsize', `${videoBitrate}k`], ['-maxrate', `${videoBitrate}k`], ['-payload_type', 99], ['-ssrc', sessionInfo.video_ssrc], ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'], ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')], [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]];
           let audioArgs = [['-map', '0:1'], ['-acodec', 'libopus'], ['-flags', '+global_header'], ['-f', 'null'], ['-ar', `${audioSamplerate}k`], ['-b:a', `${audioBitrate}k`], ['-bufsize', `${audioBitrate}k`], ['-payload_type', 110], ['-ssrc', sessionInfo.audio_ssrc], ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'], ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')], [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]]; 
           
@@ -464,6 +470,7 @@ class CameraSource {
             }
           })));
 
+          console.log (ffmpeg.path, [...source, ...video, ...audio], {env: process.env})
           let cmd = spawn(ffmpeg.path, [...source, ...video, ...audio], {env: process.env});
 
           this.log(`Start streaming video from ${this.cameraConfig.name}`);
@@ -479,7 +486,7 @@ class CameraSource {
               case null:
               case 0:
               case 255:
-                //this.log('Stopped streaming');
+                this.log('Stopped streaming');
                 break;
 
               default:
@@ -645,14 +652,6 @@ async function ssAPICFGS() {
 function getIPVersion(Address) {
   if (Address.toString().split('.').length == 4) {return 'v4'} else {return 'v6'};
 
-}
-
-async function getIP(Host){
-  let IPAddress;
-  await dns.lookup(host, function(err, result) {
-    IPAddress = result;
- });
- return IPAddress;
 }
 
 module.exports = {
