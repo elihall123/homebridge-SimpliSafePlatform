@@ -154,29 +154,12 @@ class API {
     return await self.get_System();
   };//End Of Function get_Alarm_State
 
-  async get_Camera_Stream(uuid){
+  async get_CameraSettings(serial){
     var self = this;
-    if (!self.simplisafe) await self.API_Config();
-    if (_access_token_expire && Date.now() >= _access_token_expire && self._actively_refreshing == false){
-            self._actively_refreshing = true;
-            await self._refresh_access_token(self._refresh_token);
-    }
 
-    var url = new URL(self.simplisafe.webapp.mediaHost + self.simplisafe.webapp.mediaPath + '/' + uuid + '/flv');
-
-    headers={
-      Authorization: _access_token_type + ' ' + _access_token,
-      Accept: application/json
-    };
-
-    var options = {
-      method: method,
-      headers: headers
-    }
-    var resp = await webResponse(url, options, data);
-    return resp.body;
-
-  };//End Of Function get_Camera_Stream
+    let system = await self.get_System()
+    return system.cameras.filter(camera => camera.uuid === serial)[0].cameraSettings;
+  };//End Of Function get_CameraSettings
 
   async get_System(){
     //Get systems associated to this account.
@@ -368,8 +351,9 @@ class API {
 };//End Of Class API
 
 class CameraSource {
-  constructor(cameraConfig, UUIDGen, StreamController, log) {
-    this.cameraConfig = cameraConfig;
+  constructor(serial, _fps, UUIDGen, StreamController, ss, log) {
+    this.serial = serial;
+    this.ss = ss;
     this.serverIpAddress = null;
     this.UUIDGen = UUIDGen;
     this.StreamController = StreamController;
@@ -378,7 +362,6 @@ class CameraSource {
     this.streamControllers = [];
     this.pendingSessions = {};
     this.ongoingSessions = {};
-    let _fps = this.cameraConfig.config.admin.fps;
     this.options = {
       proxy: false,
       srtp: true,
@@ -392,7 +375,8 @@ class CameraSource {
           [480, 270, _fps], 
           [640, 480, _fps], 
           [640, 360, _fps], 
-          [1280, 720, _fps]],
+          [1280, 720, _fps],
+          [1920, 1080, _fps]],
         codec: {
           profiles: [0, 1, 2],
           levels: [0, 1, 2]
@@ -416,75 +400,114 @@ class CameraSource {
 
     if (sessionId) {
       let sessionIdentifier = this.UUIDGen.unparse(sessionId);
-
+      
       if (request.type == 'start') {
         let sessionInfo = this.pendingSessions[sessionIdentifier];
+
+        let cameraSettings = await this.ss.get_CameraSettings(this.serial);
 
         if (sessionInfo) {
           let width;
           let height;
-          if (this.cameraConfig.config.pictureQuality == '480p'){
+          if (cameraSettings.pictureQuality == '480p'){
             width = 640;
-            height = 480;  
-          } else if (this.cameraConfig.config.pictureQuality == '720p'){
+            height = 480;
+          } else if (cameraSettings.pictureQuality == '720p'){
             width = 1280;
             height = 720;
+          } else if (cameraSettings.pictureQuality == '1080p'){
+            width = 1920;
+            height = 1080;
           };
 
-          this.log(width);
-
-          let fps = this.cameraConfig.config.admin.fps;
-          let videoBitrate = this.cameraConfig.config.admin.bitRate;
+          let fps = cameraSettings.admin.fps;
+          let videoBitrate = cameraSettings.admin.bitRate;
           let audioBitrate = 32;
-          let audioSamplerate = this.cameraConfig.config.admin.audioSampleRate / 1000;
+          let audioSamplerate = cameraSettings.admin.audioSampleRate / 1000;
 
           try{         
-            let serverIpAddress = await dns.lookup(this.simplisafe.webapp.mediaHost.replace('https://',''));
+            let serverIpAddress = await dns.lookup(this.simplisafe.webapp.mediaHost.replace('https://', ''));
             this.serverIpAddress = serverIpAddress.address;
           }catch(err){
             console.error(err);
           };
-          this.log(this.simplisafe.webapp.mediaHost.replace('https://',''))
+
           let sourceArgs = [
             ['-re'],
             ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
-            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.cameraConfig.serial}/flv?y=${height}`]
+            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.serial}/flv?y=${height}`]
           ];
+          let videoArgs, audioArgs;
+          if (sessionInfo.address==LocalIP) {
+            videoArgs = [
+              ['-map', '0:0'],
+              ['-vcodec', 'libx264'],
+              ['-tune', 'zerolatency'],
+              ['-preset', 'superfast'],
+              ['-pix_fmt', 'yuv420p'],
+              ['-r', fps],
+              ['-f', 'rawvideo'],
+              ['-vf', `scale=${width}:${height}`],
+              ['-b:v', `${videoBitrate}k`],
+              ['-bufsize', `${videoBitrate}k`],
+              ['-maxrate', `${videoBitrate}k`],
+              ['-payload_type', 99],
+              ['-ssrc', sessionInfo.video_ssrc],
+              ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+              ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')]
+            ];
+  
+            audioArgs = [
+              ['-map', '0:1'],
+              ['-acodec', 'libopus'],
+              ['-flags', '+global_header'],
+              ['-f', 'null'],
+              ['-ar', `${audioSamplerate}k`],
+              ['-b:a', `${audioBitrate}k`],
+              ['-bufsize', `${audioBitrate}k`],
+              ['-payload_type', 110],
+              ['-ssrc', sessionInfo.audio_ssrc],
+              ['-f', 'rtp'],
+              ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+              ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')]
+            ]; 
+          } else {
+            videoArgs = [
+              ['-map', '0:0'],
+              ['-vcodec', 'libx264'],
+              ['-tune', 'zerolatency'],
+              ['-preset', 'superfast'],
+              ['-pix_fmt', 'yuv420p'],
+              ['-r', fps],
+              ['-f', 'rawvideo'],
+              ['-vf', `scale=${width}:${height}`],
+              ['-b:v', `${videoBitrate}k`],
+              ['-bufsize', `${videoBitrate}k`],
+              ['-maxrate', `${videoBitrate}k`],
+              ['-payload_type', 99],
+              ['-ssrc', sessionInfo.video_ssrc],
+              ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+              ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
+              [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]
+            ];
+  
+            audioArgs = [
+              ['-map', '0:1'],
+              ['-acodec', 'libopus'],
+              ['-flags', '+global_header'],
+              ['-f', 'null'],
+              ['-ar', `${audioSamplerate}k`],
+              ['-b:a', `${audioBitrate}k`],
+              ['-bufsize', `${audioBitrate}k`],
+              ['-payload_type', 110],
+              ['-ssrc', sessionInfo.audio_ssrc],
+              ['-f', 'rtp'],
+              ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+              ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
+              [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]
+            ];   
+          }
 
-          let videoArgs = [
-            ['-map', '0:0'],
-            ['-vcodec', 'libx264'],
-            ['-tune', 'zerolatency'],
-            ['-preset', 'superfast'],
-            ['-pix_fmt', 'yuv420p'],
-            ['-r', fps],
-            ['-f', 'rawvideo'],
-            ['-vf', `scale=${width}:${height}`],
-            ['-b:v', `${videoBitrate}k`],
-            ['-bufsize', `${videoBitrate}k`],
-            ['-maxrate', `${videoBitrate}k`],
-            ['-payload_type', 99],
-            ['-ssrc', sessionInfo.video_ssrc],
-            ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
-            ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]
-          ];
-
-          let audioArgs = [
-            ['-map', '0:1'],
-            ['-acodec', 'libopus'],
-            ['-flags', '+global_header'],
-            ['-f', 'null'],
-            ['-ar', `${audioSamplerate}k`],
-            ['-b:a', `${audioBitrate}k`],
-            ['-bufsize', `${audioBitrate}k`],
-            ['-payload_type', 110],
-            ['-ssrc', sessionInfo.audio_ssrc],
-            ['-f', 'rtp'],
-            ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
-            ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]
-          ]; 
           
           let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
             if (typeof a == 'string') {
@@ -512,7 +535,7 @@ class CameraSource {
 
           let cmd = spawn(ffmpeg.path, [...source, ...video, ...audio], {env: process.env});
 
-          this.log(`Start streaming video from ${this.cameraConfig.name}`);
+          this.log(`Start streaming video from ${cameraSettings.cameraName}`);
           cmd.stderr.on('data', data => {
             //this.log(data.toString());
           });
