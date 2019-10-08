@@ -514,7 +514,7 @@ class CameraSource {
 
           this.log(`Start streaming video from ${this.cameraConfig.name}`);
           cmd.stderr.on('data', data => {
-            this.log(data.toString());
+            //this.log(data.toString());
           });
           cmd.on('error', err => {
             this.log('An error occurred while making stream request');
