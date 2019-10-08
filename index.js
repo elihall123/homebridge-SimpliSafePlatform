@@ -215,7 +215,7 @@ class SimpliSafe {
     };
 
     for (let camera of system.cameras){
-      this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}, config: camera.cameraSettings});
+      this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}, fps: camera.cameraSettings.admin.fps});
     }
 
   };//End Of Function loadSS
@@ -299,7 +299,7 @@ class SimpliSafe {
           device.removeService(service);
         });
     
-        device.configureCameraSource(new CameraSource(ssAccessory, UUIDGen, StreamController, this.log));
+        device.configureCameraSource(new CameraSource(ssAccessory.serial, ssAccessory.fps, UUIDGen, StreamController, ss, this.log));
             
       } else {
         if (!device.getService(this.serviceConvertSStoHK(ssAccessory.type))) device.addService(this.serviceConvertSStoHK(ssAccessory.type));
