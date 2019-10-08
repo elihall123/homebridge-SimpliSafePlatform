@@ -29,7 +29,6 @@ class SimpliSafe {
     this.config = config;
     this.ssAccessories = [];
     this.accessories = [];
-    this.cachedAccessories = [];
     
     ss = new API(config.SerialNumber, config.username, log);
     this.supportedDevices = [
@@ -55,12 +54,13 @@ class SimpliSafe {
         
         this.initial.then(()=>{
           this.updateSS();
-          this.SocketEvents = ss.get_SokectEvents(data=> {
+          this.SocketEvents = ss.get_SokectEvents(data => {
             if (data==='DISCONNECT') {
               this.log("Event Socket Disconnected. Trying to reconnect...")
               ss.login_via_credentials(config.password);
               this.SocketEvents;
             }
+            if (data.sid != ss.subId) return;
             if (!data.eventCid) return;
             let accessory;
 
@@ -181,7 +181,7 @@ class SimpliSafe {
       default:
         return (hap.Accessory.Categories.SENSOR);
     };
-  }
+  };//End Of Function AccCatConvertSStoHK
 
   serviceConvertSStoHK(type){
     switch (type) {
@@ -201,11 +201,11 @@ class SimpliSafe {
       case ss.ssDeviceIds.freezeSensor:
         return (Service.TemperatureSensor);
     };
-  }//End Of Function serviceConvertSStoHK
+  };//End Of Function serviceConvertSStoHK
 
   async loadSS(){
     let system = await ss.get_System();
-    this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()), 'type': ss.ssDeviceIds.baseStation, 'status': { triggered: system.isAlarming ? 'ALARM' : system.alarmState }, 'serial': system.serial, 'name': 'SimpliSafe Alarm System'});
+    this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()), 'type': ss.ssDeviceIds.baseStation, 'status': { triggered: system.isAlarming ? 'ALARM' : system.alarmState, temp: system.temperature }, 'serial': system.serial, 'name': 'SimpliSafe Alarm System'});
 
     for (let sensor of await ss.get_Sensors()){
       if (this.supportedDevices.includes(sensor.type)) {
@@ -213,16 +213,16 @@ class SimpliSafe {
         this.ssAccessories.push(sensor);
       };
     };
-    
+
     for (let camera of system.cameras){
-      this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}, config: camera.cameraSettings.admin});
+      this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 'type': ss.ssDeviceIds.camera, 'serial': camera.uuid, 'name': camera.cameraSettings.cameraName || 'Camera', flags: {offline: camera.status=='online'?false:true}, config: camera.cameraSettings});
     }
 
   };//End Of Function loadSS
 
   async updateSS() {
     for (let ssAccessory of this.ssAccessories){
-
+      
       let device = this.accessories.find(accessory => accessory.UUID == ssAccessory.uuid);
 
       if (!device) {
@@ -239,6 +239,12 @@ class SimpliSafe {
 
       if (ssAccessory.type === ss.ssDeviceIds.baseStation) {
         if (!device.getService(Service.SecuritySystem)) device.addService(Service.SecuritySystem);
+        if (ssAccessory.status.temp!=null) {
+          if (!device.getService(Service.TemperatureSensor)) device.addService(Service.TemperatureSensor);
+          device.getService(Service.TemperatureSensor).setCharacteristic(Characteristic.CurrentTemperature, '15');
+        } else {
+          device.services.filter(service => service.UUID === Service.TemperatureSensor.UUID).map(service => {device.removeService(service);});
+        };
         let ssService = device.getService(Service.SecuritySystem);
         ssService.getCharacteristic(Characteristic.SecuritySystemCurrentState)
           .setProps({validValues: [Characteristic.SecuritySystemCurrentState.STAY_ARM, Characteristic.SecuritySystemCurrentState.AWAY_ARM, Characteristic.SecuritySystemCurrentState.DISARMED, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED]})
@@ -260,6 +266,7 @@ class SimpliSafe {
               device.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
               break;
         };
+
 
         ssService.getCharacteristic(Characteristic.SecuritySystemTargetState)
           .setProps({validValues: [Characteristic.SecuritySystemTargetState.STAY_ARM, Characteristic.SecuritySystemTargetState.AWAY_ARM, Characteristic.SecuritySystemTargetState.DISARM]});
