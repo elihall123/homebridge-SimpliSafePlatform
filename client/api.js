@@ -72,9 +72,10 @@ class API {
       smokeDetector: 8,
       waterSensor: 9,
       freezeSensor: 10,
-      siren: 11,
-      camera: 1000,
-      nest: 2000
+      nest: 11,
+      camera: 12,
+      siren: 13,
+      doorLock: 16
     };
 
     self.ssSystemStates= {
