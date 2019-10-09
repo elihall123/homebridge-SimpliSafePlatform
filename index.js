@@ -112,7 +112,7 @@ class SimpliSafe {
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);  
                 break;
-              case ss.ssEventContactIds.sensorError:
+              /*case ss.ssEventContactIds.sensorError:
                 this.log(`${accessory.displayName} sensor error.`);
                 accessory.reachable = false;
                 break;
@@ -126,12 +126,14 @@ class SimpliSafe {
                 }
                 break;    
               case ss.ssEventContactIds.entryDelay:
+              */
               case ss.ssEventContactIds.warningSensorOpen:
                 this.log(data);
                 this.log(`${accessory.displayName} sensor opened.`);
                 // Need to figure out in how to send a message to the HK.
                 // accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
                 break;    
+              /*
               case ss.ssEventContactIds.batteryLow:
                 this.log(`${accessory.displayName} sensor battery is low.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW);
@@ -140,6 +142,7 @@ class SimpliSafe {
                 this.log(`${accessory.displayName} sensor battery has been restored.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
                 break;
+              */
               case ss.ssEventContactIds.wiFiOutage:
                 accessory.reachable = false;
                 break;                
@@ -172,27 +175,30 @@ class SimpliSafe {
           setInterval(()=>{
             ss.get_Sensors(false)
             .then((sensors)=>{
+              if (!sensors) return;
               sensors.forEach((sensor)=> {
                 if (!this.supportedDevices.includes(sensor.type)) return;
                 let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase()));
-                if (ss.ssDeviceIds.freezeSensor == sensor.type) {
-                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue((sensor.status.temperature-32) * 5/9);
-                } else {
-                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(this.characteristicConvertSStoHK(sensor.Type)).updateValue(sensor.status.triggered);
-                };
+                let service = accessory.getService(this.serviceConvertSStoHK(sensor.type))
+                if (sensor.status.triggered != undefined) service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(sensor.status.triggered);
+                if (sensor.status.temperature != undefined) service.getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensor.status.temperature-32) * 5/9);
+                if (sensor.status.lowBattery != undefined) service.getCharacteristic(Characteristic.StatusLowBattery).updateValue(sensor.flags.lowBattery);      
+                if (sensor.status.tamper != undefined) service.getCharacteristic(Characteristic.StatusTampered).updateValue(sensor.status.tamper);
+                if (sensor.status.malfunction != undefined) service.getCharacteristic(Characteristic.StatusFault).updateValue(sensor.status.malfunction);
+                if (sensor.status.offline != undefined) service.getCharacteristic(Characteristic.StatusActive).updateValue(sensor.status.offline || false);                
               });
             });
           }, (this.refresh_timer));
 
-          if (this.systemTemp==true){
+          if (this.systemTemp==true) {
             setInterval(()=>{
               ss.get_System()
               .then((system)=>{
                   let accessory = this.accessories.find(pAccessory => pAccessory.UUID ==  UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
-                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue((sensor.status.temperature-32) * 5/9);
+                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensor.status.temperature-32) * 5/9);
               });
             }, (300000));
-          }
+          };
         });
       });
     };
@@ -234,20 +240,20 @@ class SimpliSafe {
   characteristicConvertSStoHK(type){
     switch (type) {
       case ss.ssDeviceIds.coDetector:
-        return (Characteristic.CarbonMonoxideSensor);
+        return (Characteristic.CarbonMonoxideDetected);
       case ss.ssDeviceIds.entrySensor:
-        return (Characteristic.ContactSensor);
+        return (Characteristic.ContactSensorState);
       case ss.ssDeviceIds.waterSensor:
-        return (Characteristic.LeakSensor);
+        return (Characteristic.LeakDetected);
       case ss.ssDeviceIds.glassbreakSensor:
       case ss.ssDeviceIds.motionSensor:
-        return (Characteristic.MotionSensor);
+        return (Characteristic.MotionDetected);
       case ss.ssDeviceIds.baseStation:
-        return (Characteristic.SecuritySystem);
+        return (Characteristic.SecuritySystemCurrentState);
       case ss.ssDeviceIds.smokeDetector:
-        return (Characteristic.SmokeSensor);
+        return (Characteristic.SmokeDetected);
       case ss.ssDeviceIds.freezeSensor:
-        return (Characteristic.TemperatureSensor);
+        return (Characteristic.CurrentTemperature);
     };
   };//End Of Function serviceConvertSStoHK
 
