@@ -29,6 +29,7 @@ class SimpliSafe {
     this.config = config;
     this.ssAccessories = [];
     this.accessories = [];
+    this.systemTemp = false;
     
     ss = new API(config.SerialNumber, config.username, log);
     this.supportedDevices = [
@@ -43,6 +44,8 @@ class SimpliSafe {
       ss.ssDeviceIds.camera
     ];
 
+    this.refresh_timer = this.config.refresh_timer * 1000 || 3000;
+
     this.initial = ss.login_via_credentials(config.password)
     .then(()=>{
       return this.loadSS();
@@ -50,8 +53,7 @@ class SimpliSafe {
 
     if (api) {
       this.api = api;
-      this.api.on('didFinishLaunching',  ()=> {
-        
+      this.api.on('didFinishLaunching',  ()=> { 
         this.initial.then(()=>{
           this.updateSS();
           this.SocketEvents = ss.get_SokectEvents(data => {
@@ -67,7 +69,7 @@ class SimpliSafe {
             if (data.sensorType == ss.ssDeviceIds.baseStation) {
               accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.account.toLowerCase()));
             } else if (this.supportedDevices.includes(data.type)) {
-              accessoy = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()));
+              accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()));
             };
 
             switch (data.eventCid.toString()) {
@@ -102,7 +104,7 @@ class SimpliSafe {
                 this.log("System set for Away");
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM);
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM);  
-               break;
+                break;
               case ss.ssEventContactIds.alarmCanceled:
               case ss.ssEventContactIds.systemDisarmed:
               case ss.ssEventContactIds.systemOff:
@@ -120,14 +122,15 @@ class SimpliSafe {
                   this.log(`${accessory.displayName} sensor closed.`);
                   accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_DETECTED);
                 } else {
-                  accessory.reachable =true;
+                  accessory.reachable = true;
                 }
                 break;    
               case ss.ssEventContactIds.entryDelay:
               case ss.ssEventContactIds.warningSensorOpen:
                 this.log(data);
                 this.log(`${accessory.displayName} sensor opened.`);
-                accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
+                // Need to figure out in how to send a message to the HK.
+                // accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
                 break;    
               case ss.ssEventContactIds.batteryLow:
                 this.log(`${accessory.displayName} sensor battery is low.`);
@@ -165,6 +168,31 @@ class SimpliSafe {
                 break;
             };
           });
+
+          setInterval(()=>{
+            ss.get_Sensors(false)
+            .then((sensors)=>{
+              sensors.forEach((sensor)=> {
+                if (!this.supportedDevices.includes(sensor.type)) return;
+                let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase()));
+                if (ss.ssDeviceIds.freezeSensor == sensor.type) {
+                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue((sensor.status.temperature-32) * 5/9);
+                } else {
+                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(this.characteristicConvertSStoHK(sensor.Type)).updateValue(sensor.status.triggered);
+                };
+              });
+            });
+          }, (this.refresh_timer));
+
+          if (this.systemTemp==true){
+            setInterval(()=>{
+              ss.get_System()
+              .then((system)=>{
+                  let accessory = this.accessories.find(pAccessory => pAccessory.UUID ==  UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
+                  accessory.getService(this.serviceConvertSStoHK(sensor.type)).getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue((sensor.status.temperature-32) * 5/9);
+              });
+            }, (300000));
+          }
         });
       });
     };
@@ -200,6 +228,26 @@ class SimpliSafe {
         return (Service.SmokeSensor);
       case ss.ssDeviceIds.freezeSensor:
         return (Service.TemperatureSensor);
+    };
+  };//End Of Function serviceConvertSStoHK
+  
+  characteristicConvertSStoHK(type){
+    switch (type) {
+      case ss.ssDeviceIds.coDetector:
+        return (Characteristic.CarbonMonoxideSensor);
+      case ss.ssDeviceIds.entrySensor:
+        return (Characteristic.ContactSensor);
+      case ss.ssDeviceIds.waterSensor:
+        return (Characteristic.LeakSensor);
+      case ss.ssDeviceIds.glassbreakSensor:
+      case ss.ssDeviceIds.motionSensor:
+        return (Characteristic.MotionSensor);
+      case ss.ssDeviceIds.baseStation:
+        return (Characteristic.SecuritySystem);
+      case ss.ssDeviceIds.smokeDetector:
+        return (Characteristic.SmokeSensor);
+      case ss.ssDeviceIds.freezeSensor:
+        return (Characteristic.TemperatureSensor);
     };
   };//End Of Function serviceConvertSStoHK
 
@@ -240,6 +288,7 @@ class SimpliSafe {
       if (ssAccessory.type === ss.ssDeviceIds.baseStation) {
         if (!device.getService(Service.SecuritySystem)) device.addService(Service.SecuritySystem);
         if (ssAccessory.status.temp!=null) {
+          this.systemTemp = true;
           if (!device.getService(Service.TemperatureSensor)) device.addService(Service.TemperatureSensor);
           device.getService(Service.TemperatureSensor).setCharacteristic(Characteristic.CurrentTemperature, '15');
         } else {
