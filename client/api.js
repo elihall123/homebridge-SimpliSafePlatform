@@ -368,7 +368,8 @@ class CameraSource {
           [320, 180, 15], 
           [480, 360, _fps], 
           [480, 270, _fps], 
-          [640, 480, _fps], 
+          [640, 480, _fps],
+          [848, 480, _fps], 
           [640, 360, _fps], 
           [1280, 720, _fps],
           [1920, 1080, _fps]],
@@ -398,27 +399,50 @@ class CameraSource {
       
       if (request.type == 'start') {
         let sessionInfo = this.pendingSessions[sessionIdentifier];
-
         let cameraSettings = await this.ss.get_CameraSettings(this.serial);
 
         if (sessionInfo) {
-          let width;
-          let height;
+          let width, height, fps, videoBitrate, audioBitrate, audioSamplerate, streamWidth, streamHeight;
+
           if (cameraSettings.pictureQuality == '480p'){
-            width = 640;
-            height = 480;
+            streamWidth = 640;
+            streamHeight = 480;
           } else if (cameraSettings.pictureQuality == '720p'){
-            width = 1280;
-            height = 720;
+            streamWidth = 1280;
+            streamHeight = 720;
           } else if (cameraSettings.pictureQuality == '1080p'){
-            width = 1920;
-            height = 1080;
+            streamWidth = 1920;
+            streamHeight = 1080;
           };
 
-          let fps = cameraSettings.admin.fps;
-          let videoBitrate = cameraSettings.admin.bitRate;
-          let audioBitrate = 32;
-          let audioSamplerate = cameraSettings.admin.audioSampleRate / 1000;
+
+          if (request.video) {
+            width = request.video.width;
+            height = request.video.height;
+          } else {
+            width = streamWidth;
+            height = streamHeight;
+          };
+
+          if (request.video.fps) {
+            fps = request.video.fps;
+          } else {
+            fps = cameraSettings.admin.fps;
+          };
+
+          if (request.video.max_bit_rate) {
+            videoBitrate = request.video.max_bit_rate;
+          } else {
+            videoBitrate = cameraSettings.admin.bitRate;
+          };
+
+          if (request.audio) {
+            audioBitrate = request.audio.max_bit_rate;
+            audioSamplerate = request.audio.sample_rate;
+          } else {
+            audioBitrate = 32;
+            audioSamplerate = cameraSettings.admin.audioSampleRate / 1000;
+          };
 
           try{         
             let serverIpAddress = await dns.lookup(this.simplisafe.webapp.mediaHost.replace('https://', ''));
@@ -426,83 +450,47 @@ class CameraSource {
           }catch(err){
             console.error(err);
           };
-
+          
           let sourceArgs = [
             ['-re'],
             ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
-            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.serial}/flv?y=${height}`]
+            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.serial}/flv?y=${streamHeight}`]
           ];
-          let videoArgs, audioArgs;
-          if (sessionInfo.address==LocalIP) {
-            videoArgs = [
-              ['-map', '0:0'],
-              ['-vcodec', 'libx264'],
-              ['-tune', 'zerolatency'],
-              ['-preset', 'superfast'],
-              ['-pix_fmt', 'yuv420p'],
-              ['-r', fps],
-              ['-f', 'rawvideo'],
-              ['-vf', `scale=${width}:${height}`],
-              ['-b:v', `${videoBitrate}k`],
-              ['-bufsize', `${videoBitrate}k`],
-              ['-maxrate', `${videoBitrate}k`],
-              ['-payload_type', 99],
-              ['-ssrc', sessionInfo.video_ssrc],
-              ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
-              ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')]
-            ];
-  
-            audioArgs = [
-              ['-map', '0:1'],
-              ['-acodec', 'libopus'],
-              ['-flags', '+global_header'],
-              ['-f', 'null'],
-              ['-ar', `${audioSamplerate}k`],
-              ['-b:a', `${audioBitrate}k`],
-              ['-bufsize', `${audioBitrate}k`],
-              ['-payload_type', 110],
-              ['-ssrc', sessionInfo.audio_ssrc],
-              ['-f', 'rtp'],
-              ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
-              ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')]
-            ]; 
-          } else {
-            videoArgs = [
-              ['-map', '0:0'],
-              ['-vcodec', 'libx264'],
-              ['-tune', 'zerolatency'],
-              ['-preset', 'superfast'],
-              ['-pix_fmt', 'yuv420p'],
-              ['-r', fps],
-              ['-f', 'rawvideo'],
-              ['-vf', `scale=${width}:${height}`],
-              ['-b:v', `${videoBitrate}k`],
-              ['-bufsize', `${videoBitrate}k`],
-              ['-maxrate', `${videoBitrate}k`],
-              ['-payload_type', 99],
-              ['-ssrc', sessionInfo.video_ssrc],
-              ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
-              ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
-              [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]
-            ];
-  
-            audioArgs = [
-              ['-map', '0:1'],
-              ['-acodec', 'libopus'],
-              ['-flags', '+global_header'],
-              ['-f', 'null'],
-              ['-ar', `${audioSamplerate}k`],
-              ['-b:a', `${audioBitrate}k`],
-              ['-bufsize', `${audioBitrate}k`],
-              ['-payload_type', 110],
-              ['-ssrc', sessionInfo.audio_ssrc],
-              ['-f', 'rtp'],
-              ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
-              ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
-              [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]
-            ];   
-          }
+          
+          let videoArgs = [
+            ['-map', '0:0'],
+            ['-vcodec', 'libx264'],
+            ['-tune', 'zerolatency'],
+            ['-preset', 'superfast'],
+            ['-pix_fmt', 'yuv420p'],
+            ['-r', fps],
+            ['-f', 'rawvideo'],
+            ['-vf', `scale=${width}:${height}`],
+            ['-b:v', `${videoBitrate}k`],
+            ['-bufsize', `${videoBitrate}k`],
+            ['-maxrate', `${videoBitrate}k`],
+            ['-payload_type', 99],
+            ['-ssrc', sessionInfo.video_ssrc],
+            ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+            ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
+            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]
+          ];
 
+          let audioArgs = [
+            ['-map', '0:1'],
+            ['-acodec', 'libopus'],
+            ['-flags', '+global_header'],
+            ['-f', 'null'],
+            ['-ar', `${audioSamplerate}k`],
+            ['-b:a', `${audioBitrate}k`],
+            ['-bufsize', `${audioBitrate}k`],
+            ['-payload_type', 110],
+            ['-ssrc', sessionInfo.audio_ssrc],
+            ['-f', 'rtp'],
+            ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
+            ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
+            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]
+          ];   
           
           let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
             if (typeof a == 'string') {
