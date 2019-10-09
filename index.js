@@ -180,19 +180,24 @@ class SimpliSafe {
               case ss.ssEventContactIds.sensorNamed:
                 accessory.displayName = data.sensorName;
                 break;
+
               case ss.ssEventContactIds.systemPowerOutage:
               case ss.ssEventContactIdssystemInterferenceDetected:
                 this.log(`${accessory.displayName} fault.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
                 break;
+                
               case ss.ssEventContactIds.systemPowerRestored:
               case ss.ssEventContactIds.systemInterferenceResolved:
                 this.log(`${accessory.displayName} restored.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
                 break;
+
               case ss.ssEventContactIds.cameraRecording:
               case ss.ssEventContactIds.doorbellRang:
                   this.log(data);
+                  break;
+                  
               default:
                 this.log(data);
                 break;
@@ -380,7 +385,7 @@ class SimpliSafe {
           device.removeService(service);
         });
     
-        device.configureCameraSource(new CameraSource(ssAccessory.serial, ssAccessory.fps, UUIDGen, StreamController, ss, this.log));
+        device.configureCameraSource(new CameraSource(ssAccessory.name, ssAccessory.fps, UUIDGen, StreamController, this.log));
             
       } else {
         if (!device.getService(this.serviceConvertSStoHK(ssAccessory.type))) device.addService(this.serviceConvertSStoHK(ssAccessory.type));
