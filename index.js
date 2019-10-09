@@ -62,8 +62,9 @@ class SimpliSafe {
               ss.login_via_credentials(config.password);
               this.SocketEvents;
             }
-            if (data.sid != ss.subId) return;
             if (!data.eventCid) return;
+            if (data.sid != ss.subId) return;
+            
             let accessory;
 
             if (data.sensorType == ss.ssDeviceIds.baseStation) {
@@ -73,39 +74,49 @@ class SimpliSafe {
             };
 
             switch (data.eventCid.toString()) {
-/*
+              case ss.ssEventContactIds.systemArmed:
+              case ss.ssEventContactIds.alarmCanceled:
+                this.log(data);
+                break;
+
               case ss.ssEventContactIds.alarmSmokeDetectorTriggered:
-              case ss.ssEventContactIds.alarmWaterSensorTriggered: 
+              case ss.ssEventContactIds.alarmPanicButtonTriggered:
+              case ss.ssEventContactIds.alarmMotionOrGlassbreakSensorTriggered:
+              case ss.ssEventContactIds.alarmEntrySensorTriggered:
+              case ss.ssEventContactIds.alarmOther:
+              case ss.ssEventContactIds.alarmWaterSensorTriggered:
+              case ss.ssEventContactIds.alarmHeatSensorTriggered:
               case ss.ssEventContactIds.alarmFreezeSensorTriggered:
               case ss.ssEventContactIds.alarmCoSensorTriggered:
-              case ss.ssEventContactIds.alarmEntrySensorTriggered:
-              case ss.ssEventContactIds.alarmMotionOrGlassbreakSensorTriggered:
-                this.log("System Alarm Triggered");
+                  this.log("System Alarm Triggered form");
                 accessory.getService(Service.SecuritySystemCurrentState).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
                 break;
-              case ss.ssEventContactIds.alarmCanceled:
+
               case ss.ssEventContactIds.alarmSmokeDetectorStopped: 
               case ss.ssEventContactIds.alarmWaterSensorStopped:
               case ss.ssEventContactIds.alarmFreezeSensorStopped:
               case ss.ssEventContactIds.alarmCoSensorStopped:
+              case ss.ssEventContactIds.alarmHeatSensorStopped:
                 this.log("System Alarm Silenced");
                 accessory.getService(Service.SecuritySystemCurrentState).setCharacteristic(Characteristic.SecuritySystemCurrentState, accessory.getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState));
                 break;
+
               case ss.ssEventContactIds.systemHome2:
               case ss.ssEventContactIds.systemArmedHome:
-                this.log("System set for Home");
+                this.log("System Set for Home");
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM);
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);  
                 break;
+
               case ss.ssEventContactIds.systemArmedAway:
-              case ss.ssEventContactIds.systemArmed:
               case ss.ssEventContactIds.systemAwayRemote:
               case ss.ssEventContactIds.systemAway2:
               case ss.ssEventContactIds.systemAway2Remote:
-                this.log("System set for Away");
+                this.log("System Set for Away");
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM);
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM);  
                 break;
+
               case ss.ssEventContactIds.alarmCanceled:
               case ss.ssEventContactIds.systemDisarmed:
               case ss.ssEventContactIds.systemOff:
@@ -113,58 +124,68 @@ class SimpliSafe {
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
                 accessory.getService(Service.SecuritySystem).setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);  
                 break;
+
               case ss.ssEventContactIds.sensorError:
                 this.log(`${accessory.displayName} sensor error.`);
                 accessory.reachable = false;
+                accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
                 break;
+
               case ss.ssEventContactIds.sensorRestored:
                 this.log(data);
-                if (data.sensorType == ss.ssDeviceIds.entrySensor){
-                  this.log(`${accessory.displayName} sensor closed.`);
-                  accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_DETECTED);
-                } else {
-                  accessory.reachable = true;
-                }
-                break;    
+                accessory.reachable = true;
+                accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+                break;
+                
               case ss.ssEventContactIds.entryDelay:
-*/
+                accessory.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
+                break;
+
+              case ss.ssEventContactIds.alertSecret:
+                accessory.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).setValue(true);
+                break;
+  
               case ss.ssEventContactIds.warningSensorOpen:
                 this.log(data);
                 this.log(`${accessory.displayName} sensor opened.`);
                 // Need to figure out in how to send a message to the HK.
                 // accessory.getService(Service.ContactSensor).setCharacteristic(Characteristic.ContactSensorState, Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
                 break;
-/*
+
               case ss.ssEventContactIds.batteryLow:
                 this.log(`${accessory.displayName} sensor battery is low.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW);
                 break;
+
               case ss.ssEventContactIds.batteryRestored:
                 this.log(`${accessory.displayName} sensor battery has been restored.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
                 break;
+
               case ss.ssEventContactIds.wiFiOutage:
                 accessory.reachable = false;
-                break;                
+                accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+                break;
+
               case ss.ssEventContactIds.wiFiRestored:
                 accessory.reachable = true;
-                break;       
-*/
-                case ss.ssEventContactIds.sensorAdded:
+                accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+                break;
+
+              case ss.ssEventContactIds.sensorAdded:
                 this.ssAccessories.push({uuid: UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()), 'type': data.sensorType, 'serial': data.sensorSerial, 'name': data.sensorName});
                 this.updateSS();
                 break;
+
               case ss.ssEventContactIds.sensorNamed:
                 accessory.displayName = data.sensorName;
                 break;
-/*
               case ss.ssEventContactIds.systemPowerOutage:
               case ss.ssEventContactIdssystemInterferenceDetected:
                 this.log(`${accessory.displayName} fault.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
                 break;
               case ss.ssEventContactIds.systemPowerRestored:
-*/
               case ss.ssEventContactIds.systemInterferenceResolved:
                 this.log(`${accessory.displayName} restored.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
@@ -183,49 +204,26 @@ class SimpliSafe {
             .then((sensors)=>{
               if (!sensors) return;
               sensors.forEach((sensor)=> {
-                if (!this.supportedDevices.includes(sensor.type)) return;
-                let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase()));
-                let service = accessory.getService(this.serviceConvertSStoHK(sensor.type))
-                if (sensor.status.triggered != undefined) service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(sensor.status.triggered);
-                if (sensor.status.temperature != undefined) service.getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensor.status.temperature-32) * 5/9);
-                if (sensor.status.lowBattery != undefined) service.getCharacteristic(Characteristic.StatusLowBattery).updateValue(sensor.flags.lowBattery);      
-                if (sensor.status.tamper != undefined) service.getCharacteristic(Characteristic.StatusTampered).updateValue(sensor.status.tamper);
-                if (sensor.status.malfunction != undefined) service.getCharacteristic(Characteristic.StatusFault).updateValue(sensor.status.malfunction);
-                if (sensor.status.offline != undefined) service.getCharacteristic(Characteristic.StatusActive).updateValue(sensor.status.offline || false);                
+                if ([ss.ssDeviceIds.ContactSensor, ss.ssDeviceIds.TemperatureSensor].includes(sensor.type)) {
+                  let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase()));
+                  let service = accessory.getService(this.serviceConvertSStoHK(sensor.type))
+                  if (sensor.status.triggered != undefined) service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(sensor.status.triggered);
+                  if (sensor.status.temperature != undefined) service.getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensor.status.temperature-32) * 5/9);
+                };
               });
             });
-
-            ss.get_System()
-            .then((system)=>{
-                let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
-                let service = accessory.getService(Service.SecuritySystem)       
-                
-                if (system.isAlarming) service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);                 
-                switch(system.alarmState.toLowerCase()) {
-                  case "off":
-                      service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
-                      service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);
-                      break;
-                  case "home":
-                      service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM);
-                      service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);
-                      break;
-                  case "away":
-                      service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM);
-                      service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM);
-                      break;
-                  /*case "alarm":
-                      service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
-                      break;*/
-                };
-                if (system.temperature != null ) service.getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensor.status.temperature-32) * 5/9);
-                if (system.powerOutage == true || system.isOffline == true) {
-                  service.getCharacteristic(Characteristic.StatusFault).updateValue(true)
-                } else {
-                  service.getCharacteristic(Characteristic.StatusFault).updateValue(false)
-                }; 
-            });
           }, (this.refresh_timer));
+
+          if (this.systemTemp == true) {
+            setInterval(()=>{
+                ss.get_System()
+                .then((system)=>{
+                  this.log('Refreshing System Temperature')
+                  let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
+                  accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue((system.temperature-32) * 5/9);  
+                })
+            }, (300000));
+          };
         });
       });
     };
@@ -321,6 +319,7 @@ class SimpliSafe {
       if (ssAccessory.type === ss.ssDeviceIds.baseStation) {
         if (!device.getService(Service.SecuritySystem)) device.addService(Service.SecuritySystem);
         if (ssAccessory.status.temp!=null) {
+          this.systemTemp = true;
           if (!device.getService(Service.TemperatureSensor)) device.addService(Service.TemperatureSensor);
           device.getService(Service.TemperatureSensor).setCharacteristic(Characteristic.CurrentTemperature, '15');
         } else {
