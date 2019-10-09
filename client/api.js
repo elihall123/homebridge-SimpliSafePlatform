@@ -149,11 +149,6 @@ class API {
 
   };//End Of Function Constructor
 
-  async get_Alarm_State() {
-    var self = this;
-    return await self.get_System();
-  };//End Of Function get_Alarm_State
-
   async get_CameraSettings(serial){
     var self = this;
 
@@ -572,7 +567,6 @@ class CameraSource {
       }
     }
   };
-
 
   handleCloseConnection(connId) {
     this.streamControllers.forEach(controller => {
