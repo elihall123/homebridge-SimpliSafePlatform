@@ -385,7 +385,7 @@ class SimpliSafe {
           device.removeService(service);
         });
     
-        device.configureCameraSource(new CameraSource(ssAccessory.name, ssAccessory.fps, UUIDGen, StreamController, this.log));
+        device.configureCameraSource(new CameraSource(ssAccessory, UUIDGen, StreamController, this.log));
             
       } else {
         if (!device.getService(this.serviceConvertSStoHK(ssAccessory.type))) device.addService(this.serviceConvertSStoHK(ssAccessory.type));
