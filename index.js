@@ -204,7 +204,7 @@ class SimpliSafe {
             .then((sensors)=>{
               if (!sensors) return;
               sensors.forEach((sensor)=> {
-                if ([ss.ssDeviceIds.ContactSensor, ss.ssDeviceIds.TemperatureSensor].includes(sensor.type)) {
+                if ([ss.ssDeviceIds.entrySensor, ss.ssDeviceIds.freezeSensor].includes(sensor.type)) {
                   let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase()));
                   let service = accessory.getService(this.serviceConvertSStoHK(sensor.type))
                   if (sensor.status.triggered != undefined) service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(sensor.status.triggered);
