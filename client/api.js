@@ -346,9 +346,8 @@ class API {
 };//End Of Class API
 
 class CameraSource {
-  constructor(serial, _fps, UUIDGen, StreamController, ss, log) {
-    this.serial = serial;
-    this.ss = ss;
+  constructor(Name, _fps, UUIDGen, StreamController, log) {
+    this.Name = Name;
     this.serverIpAddress = null;
     this.UUIDGen = UUIDGen;
     this.StreamController = StreamController;
@@ -399,62 +398,20 @@ class CameraSource {
       
       if (request.type == 'start') {
         let sessionInfo = this.pendingSessions[sessionIdentifier];
-        let cameraSettings = await this.ss.get_CameraSettings(this.serial);
 
         if (sessionInfo) {
-          let width, height, fps, videoBitrate, audioBitrate, audioSamplerate, streamWidth, streamHeight;
-
-          if (cameraSettings.pictureQuality == '480p'){
-            streamWidth = 640;
-            streamHeight = 480;
-          } else if (cameraSettings.pictureQuality == '720p'){
-            streamWidth = 1280;
-            streamHeight = 720;
-          } else if (cameraSettings.pictureQuality == '1080p'){
-            streamWidth = 1920;
-            streamHeight = 1080;
-          };
-
-
-          if (request.video) {
-            width = request.video.width;
-            height = request.video.height;
-          } else {
-            width = streamWidth;
-            height = streamHeight;
-          };
-
-          if (request.video.fps) {
-            fps = request.video.fps;
-          } else {
-            fps = cameraSettings.admin.fps;
-          };
-
-          if (request.video.max_bit_rate) {
-            videoBitrate = request.video.max_bit_rate;
-          } else {
-            videoBitrate = cameraSettings.admin.bitRate;
-          };
-
-          if (request.audio) {
-            audioBitrate = request.audio.max_bit_rate;
-            audioSamplerate = request.audio.sample_rate;
-          } else {
-            audioBitrate = 32;
-            audioSamplerate = cameraSettings.admin.audioSampleRate / 1000;
-          };
-
           try{         
             let serverIpAddress = await dns.lookup(this.simplisafe.webapp.mediaHost.replace('https://', ''));
             this.serverIpAddress = serverIpAddress.address;
           }catch(err){
             console.error(err);
+            return;
           };
           
           let sourceArgs = [
             ['-re'],
             ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
-            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.serial}/flv?y=${streamHeight}`]
+            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.serial}/flv`]
           ];
           
           let videoArgs = [
@@ -463,12 +420,12 @@ class CameraSource {
             ['-tune', 'zerolatency'],
             ['-preset', 'superfast'],
             ['-pix_fmt', 'yuv420p'],
-            ['-r', fps],
+            ['-r', request.video.fps],
             ['-f', 'rawvideo'],
-            ['-vf', `scale=${width}:${height}`],
-            ['-b:v', `${videoBitrate}k`],
-            ['-bufsize', `${videoBitrate}k`],
-            ['-maxrate', `${videoBitrate}k`],
+            ['-vf', `scale=${request.video.width}:${request.video.height}`],
+            ['-b:v', `${request.video.max_bit_rate}k`],
+            ['-bufsize', `${request.video.max_bit_rate}k`],
+            ['-maxrate', `${request.video.max_bit_rate}k`],
             ['-payload_type', 99],
             ['-ssrc', sessionInfo.video_ssrc],
             ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
@@ -481,9 +438,9 @@ class CameraSource {
             ['-acodec', 'libopus'],
             ['-flags', '+global_header'],
             ['-f', 'null'],
-            ['-ar', `${audioSamplerate}k`],
-            ['-b:a', `${audioBitrate}k`],
-            ['-bufsize', `${audioBitrate}k`],
+            ['-ar', `${request.audio.sample_rate}k`],
+            ['-b:a', `${request.audio.max_bit_rate}k`],
+            ['-bufsize', `${request.audio.max_bit_rate}k`],
             ['-payload_type', 110],
             ['-ssrc', sessionInfo.audio_ssrc],
             ['-f', 'rtp'],
@@ -518,9 +475,9 @@ class CameraSource {
 
           let cmd = spawn(ffmpeg.path, [...source, ...video, ...audio], {env: process.env});
 
-          this.log(`Start streaming video from ${cameraSettings.cameraName}`);
+          this.log(`Start streaming video from ${this.Name}`);
           cmd.stderr.on('data', data => {
-            //this.log(data.toString());
+            this.log(data.toString());
           });
           cmd.on('error', err => {
             this.log('An error occurred while making stream request');
