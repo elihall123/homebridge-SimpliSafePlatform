@@ -346,8 +346,8 @@ class API {
 };//End Of Class API
 
 class CameraSource {
-  constructor(Name, _fps, UUIDGen, StreamController, log) {
-    this.Name = Name;
+  constructor(ssCamera, UUIDGen, StreamController, log) {
+    this.ssCamera = ssCamera;
     this.serverIpAddress = null;
     this.UUIDGen = UUIDGen;
     this.StreamController = StreamController;
@@ -361,17 +361,17 @@ class CameraSource {
       srtp: true,
       video: {
         resolutions: [
-          [320, 240, _fps], 
+          [320, 240, this.ssCamera.fps], 
           [320, 240, 15], 
-          [320, 180, _fps], 
+          [320, 180, this.ssCamera.fps], 
           [320, 180, 15], 
-          [480, 360, _fps], 
-          [480, 270, _fps], 
-          [640, 480, _fps],
-          [848, 480, _fps], 
-          [640, 360, _fps], 
-          [1280, 720, _fps],
-          [1920, 1080, _fps]],
+          [480, 360, this.ssCamera.fps], 
+          [480, 270, this.ssCamera.fps], 
+          [640, 480, this.ssCamera.fps],
+          [848, 480, this.ssCamera.fps], 
+          [640, 360, this.ssCamera.fps], 
+          [1280, 720, this.ssCamera.fps],
+          [1920, 1080, this.ssCamera.fps]],
         codec: {
           profiles: [0, 1, 2],
           levels: [0, 1, 2]
@@ -411,7 +411,7 @@ class CameraSource {
           let sourceArgs = [
             ['-re'],
             ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
-            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.serial}/flv`]
+            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv`]
           ];
           
           let videoArgs = [
@@ -430,7 +430,7 @@ class CameraSource {
             ['-ssrc', sessionInfo.video_ssrc],
             ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${sessionInfo.video_port}&pkt_size=1316`]
+            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${(sessionInfo.video_port+1)}&pkt_size=1316`]
           ];
 
           let audioArgs = [
@@ -446,7 +446,7 @@ class CameraSource {
             ['-f', 'rtp'],
             ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${sessionInfo.audio_port}&pkt_size=1316`]
+            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${(sessionInfo.audio_port + 1)}&pkt_size=1316`]
           ];   
           
           let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
@@ -475,9 +475,9 @@ class CameraSource {
 
           let cmd = spawn(ffmpeg.path, [...source, ...video, ...audio], {env: process.env});
 
-          this.log(`Start streaming video from ${this.Name}`);
+          this.log(`Start streaming video from ${this.ssCamera.name}`);
           cmd.stderr.on('data', data => {
-            this.log(data.toString());
+            //this.log(data.toString());
           });
           cmd.on('error', err => {
             this.log('An error occurred while making stream request');
