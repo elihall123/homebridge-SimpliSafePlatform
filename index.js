@@ -169,8 +169,8 @@ class SimpliSafe {
                 this.log(`${accessory.displayName} restored.`);
                 accessory.getService(this.serviceConvertSStoHK(data.sensorType)).setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
                 break;
-              case cameraRecording:
-              case doorbellRang:
+              case ss.ssEventContactIds.cameraRecording:
+              case ss.ssEventContactIds.doorbellRang:
                   this.log(data);
               default:
                 this.log(data);
