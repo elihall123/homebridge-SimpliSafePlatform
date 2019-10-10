@@ -1,4 +1,5 @@
 var websession = require('https');
+var net = require('net');
 var vm = require('vm');
 
 var io = require("socket.io-client");
@@ -430,7 +431,7 @@ class CameraSource {
             ['-ssrc', sessionInfo.video_ssrc],
             ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${(sessionInfo.video_port+1)}&pkt_size=1316`]
+            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${(openPort())}&pkt_size=1316`]
           ];
 
           let audioArgs = [
@@ -446,7 +447,7 @@ class CameraSource {
             ['-f', 'rtp'],
             ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${(sessionInfo.audio_port + 1)}&pkt_size=1316`]
+            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${(openPort())}&pkt_size=1316`]
           ];   
           
           let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
@@ -647,12 +648,21 @@ async function ssAPICFGS() {
               .replace('var a=', 'var a=g.')
               .replace(';', '');
   return vm.runInThisContext(resp);
-};
+};//End Of Function ssAPICFGS
 
 function getIPVersion(Address) {
   if (Address.toString().split('.').length == 4) {return 'v4'} else {return 'v6'};
 
-};
+};//End Of Function getIPVersion
+
+function openPort(){
+let srv = net.createServer(function(sock) {
+  sock.end('Hello world\n');
+});
+return srv.listen(0, function() {
+  return srv.address().port;
+});
+};//Enf Of Function openPort
 
 module.exports = {
   API,
