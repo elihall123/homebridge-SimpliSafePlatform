@@ -225,7 +225,6 @@ class SimpliSafe {
             };
           });
           
-/*
           setInterval(()=>{
             ss.get_Sensors(false)
             .then((sensors)=>{
@@ -240,7 +239,7 @@ class SimpliSafe {
               });
             });
           }, (this.refresh_timer));
-*/
+
           if (this.systemTemp == true) {
             setInterval(()=>{
                 ss.get_System()
