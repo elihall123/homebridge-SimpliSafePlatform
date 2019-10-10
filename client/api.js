@@ -150,13 +150,6 @@ class API {
 
   };//End Of Function Constructor
 
-  async get_CameraSettings(serial){
-    var self = this;
-
-    let system = await self.get_System()
-    return system.cameras.filter(camera => camera.uuid === serial)[0].cameraSettings;
-  };//End Of Function get_CameraSettings
-
   async get_System(){
     //Get systems associated to this account.
     var self = this;
@@ -184,7 +177,7 @@ class API {
       method:'GET',
       endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
       params:{'forceUpdate': (cached==false).toString().toLowerCase()} //false = coming from cache
-    })
+    });
     return resp.sensors;
   };//End Of Function get_Sensors
 
@@ -337,11 +330,23 @@ class API {
   };//End Of Function Request
 
   async set_Alarm_State(value) {
-  var self = this;
-      return await self.request({
-       method:'post',
-       endpoint:'ss3/subscriptions/' + self.subId + '/state/' + value
-      })
+    var self = this;
+    
+    try {
+      if (!self.subId) {
+        await this.get_System();
+      }
+  
+      let data = await self.request({
+        method: 'POST',
+        endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`
+      });
+
+      return data;
+    } catch (err) {
+      throw err;
+    }
+    
   };//End Of Function set_Alarm_State
 
 };//End Of Class API
@@ -662,7 +667,7 @@ let srv = net.createServer(function(sock) {
 return srv.listen(0, function() {
   return srv.address().port;
 });
-};//Enf Of Function openPort
+};//End Of Function openPort
 
 module.exports = {
   API,
