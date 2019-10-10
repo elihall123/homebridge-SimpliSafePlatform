@@ -15,6 +15,7 @@ var _access_token_type;
 var _email;
 var APICFGS;
 var LocalIP;
+var portrange=1025;
 
 class API {
   //Class SimpliSafe API
@@ -419,7 +420,7 @@ class CameraSource {
             ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
             ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv`]
           ];
-          
+
           let videoArgs = [
             ['-map', '0:0'],
             ['-vcodec', 'libx264'],
@@ -436,7 +437,7 @@ class CameraSource {
             ['-ssrc', sessionInfo.video_ssrc],
             ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${(openPort())}&pkt_size=1316`]
+            ['srtp://' + sessionInfo.address + ':' + sessionInfo.video_port + '?rtcpport=' + sessionInfo.video_port + '&localrtcpport=' + await openPort(sessionInfo.video_port + 1) + '&pkt_size=1316']
           ];
 
           let audioArgs = [
@@ -452,7 +453,7 @@ class CameraSource {
             ['-f', 'rtp'],
             ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.audio_srtp.toString('base64')],
-            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${(openPort())}&pkt_size=1316`]
+            [`srtp://${sessionInfo.address}:${sessionInfo.audio_port}?rtcpport=${sessionInfo.audio_port}&localrtcpport=${await openPort(sessionInfo.audio_port + 1)}&pkt_size=1316`]
           ];   
           
           let source = [].concat(...sourceArgs.map(arg => arg.map(a => {
@@ -483,7 +484,7 @@ class CameraSource {
 
           this.log(`Start streaming video from ${this.ssCamera.name}`);
           cmd.stderr.on('data', data => {
-            //this.log(data.toString());
+            this.log(data.toString());
           });
           cmd.on('error', err => {
             this.log('An error occurred while making stream request');
@@ -660,14 +661,27 @@ function getIPVersion(Address) {
 
 };//End Of Function getIPVersion
 
-function openPort(){
-let srv = net.createServer(function(sock) {
-  sock.end('Hello world\n');
-});
-return srv.listen(0, function() {
-  return srv.address().port;
-});
-};//End Of Function openPort
+
+
+function openPort(startingAt) {
+
+  function getNextAvailablePort (currentPort, cb) {
+      const server = net.createServer()
+      server.listen(currentPort, _ => {
+          server.once('close', _ => {
+              cb(currentPort)
+          })
+          server.close()
+      })
+      server.on('error', _ => {
+          getNextAvailablePort(++currentPort, cb)
+      })
+  }
+
+  return new Promise(resolve => {
+      getNextAvailablePort(startingAt, resolve)
+  })
+}
 
 module.exports = {
   API,
