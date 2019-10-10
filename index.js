@@ -215,55 +215,9 @@ class SimpliSafe {
                 break;
 
               case ss.ssEventContactIds.cameraRecording:
-/*{
-"eventTimestamp":1570718917,
-"eventCid":1170,
-"zoneCid":"0",
-"sensorType":12,
-"sensorSerial":"",
-"account":"0000F833",
-"userId":207971,
-"sid":137913,
-"info":""Basement" Camera Detected Motion",
-"pinName":"",
-"sensorName":"",
-"messageSubject":"Camera Detected Motion",
-"messageBody":""Basement" Camera Detected Motion on 10-10-19 at 9:48 am",
-"eventType":"activityCam",
-"timezone":1,
-"locationOffset":-300,
-"internal":{
-  "isSubscribed":true,
-  "shouldNotify":true,
-  "type":"pir",
-  "mainCamera":"f8034ea929a993901f627838e005cf32",
-  "mainCameraName":"Basement",
-  "mainCameraFirmwareVersion":"2.5.1.72",
-  "micEnable":true,
-  "dispatcher":"cops"
-},
-"senderId":"",
-"eventId":6559614173,
-"serviceFeatures":{
-  "monitoring":true,
-  "alerts":true,
-  "online":true,
-  "video":false,
-  "hazard":false
-},
-"copsVideoOptIn":true,
-"video":{
-  "f8034ea929a993901f627838e005cf32":{
-    "clipId":2276111971,
-    "preroll":5,
-    "postroll":60,
-    "cameraName":"Basement"
-  }
-},
-"videoStartedBy":1
-}
-
- */
+                service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(true);
+                break;
+  
               case ss.ssEventContactIds.doorbellRang:
                 this.log(data);
                 break;
@@ -348,6 +302,7 @@ class SimpliSafe {
         return (Characteristic.LeakDetected);
       case ss.ssDeviceIds.glassbreakSensor:
       case ss.ssDeviceIds.motionSensor:
+      case ss.ssDeviceIds.camera:
         return (Characteristic.MotionDetected);
       case ss.ssDeviceIds.baseStation:
         return (Characteristic.SecuritySystemCurrentState);
