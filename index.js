@@ -44,7 +44,7 @@ class SimpliSafe {
       ss.ssDeviceIds.camera
     ];
 
-    this.refresh_timer = this.config.refresh_timer * 1000 || 3000;
+    this.refresh_timer = this.config.refresh_timer * 1000 || 15000;
 
     this.initial = ss.login_via_credentials(config.password)
     .then(()=>{
@@ -64,12 +64,15 @@ class SimpliSafe {
             }
             if (!data.eventCid) return;
             if (data.sid != ss.subId) return;
+            if (!this.supportedDevices.includes(data.type)) return;
             
-            let accessory, countDown,displayName ;
+            let accessory, countDown, displayName ;
 
             if (data.sensorType == ss.ssDeviceIds.baseStation) {
               accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.account.toLowerCase()));
-            } else if (this.supportedDevices.includes(data.type)) {
+            } else if (data.sensorType == ss.ssDeviceIds.camera) {
+              accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.internal.maincamera.toLowerCase()));
+            } else {
               accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()));
             };
             
@@ -108,7 +111,6 @@ class SimpliSafe {
                 this.log("System Set for Home");
                 if (countDown) clearInterval(countDown);
                 service.setCharacteristic(Characteristic.Name, displayName);
-                //service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM);
                 service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);  
                 break;
 
@@ -119,7 +121,6 @@ class SimpliSafe {
                 this.log("System Set for Away");
                 if (countDown) clearInterval(countDown);
                 service.setCharacteristic(Characteristic.Name, displayName);
-                //service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM);
                 service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM);  
                 break;
 
@@ -129,7 +130,6 @@ class SimpliSafe {
                 this.log("System Disarm");
                 if (countDown) clearInterval(countDown);
                 service.setCharacteristic(Characteristic.Name, displayName);
-                //service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARM);
                 service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED);  
                 break;
 
@@ -215,10 +215,59 @@ class SimpliSafe {
                 break;
 
               case ss.ssEventContactIds.cameraRecording:
+/*{
+"eventTimestamp":1570718917,
+"eventCid":1170,
+"zoneCid":"0",
+"sensorType":12,
+"sensorSerial":"",
+"account":"0000F833",
+"userId":207971,
+"sid":137913,
+"info":""Basement" Camera Detected Motion",
+"pinName":"",
+"sensorName":"",
+"messageSubject":"Camera Detected Motion",
+"messageBody":""Basement" Camera Detected Motion on 10-10-19 at 9:48 am",
+"eventType":"activityCam",
+"timezone":1,
+"locationOffset":-300,
+"internal":{
+  "isSubscribed":true,
+  "shouldNotify":true,
+  "type":"pir",
+  "mainCamera":"f8034ea929a993901f627838e005cf32",
+  "mainCameraName":"Basement",
+  "mainCameraFirmwareVersion":"2.5.1.72",
+  "micEnable":true,
+  "dispatcher":"cops"
+},
+"senderId":"",
+"eventId":6559614173,
+"serviceFeatures":{
+  "monitoring":true,
+  "alerts":true,
+  "online":true,
+  "video":false,
+  "hazard":false
+},
+"copsVideoOptIn":true,
+"video":{
+  "f8034ea929a993901f627838e005cf32":{
+    "clipId":2276111971,
+    "preroll":5,
+    "postroll":60,
+    "cameraName":"Basement"
+  }
+},
+"videoStartedBy":1
+}
+
+ */
               case ss.ssEventContactIds.doorbellRang:
-                  this.log(data);
-                  break;
-                  
+                this.log(data);
+                break;
+                
               default:
                 this.log(data);
                 break;
@@ -278,7 +327,8 @@ class SimpliSafe {
         return (Service.LeakSensor);
       case ss.ssDeviceIds.glassbreakSensor:
       case ss.ssDeviceIds.motionSensor:
-        return (Service.MotionSensor);
+      case ss.ssDeviceIds.camera:
+          return (Service.MotionSensor);
       case ss.ssDeviceIds.baseStation:
         return (Service.SecuritySystem);
       case ss.ssDeviceIds.smokeDetector:
