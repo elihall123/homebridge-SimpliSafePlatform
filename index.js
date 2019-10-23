@@ -219,7 +219,7 @@ class SimpliSafe {
                 break;
   
               case ss.ssEventContactIds.doorbellRang:
-                this.log(data);
+                service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(true);
                 break;
                 
               default:
