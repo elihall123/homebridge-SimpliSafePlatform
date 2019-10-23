@@ -3,6 +3,7 @@ const { API, CameraSource } = require('./client/api');
 
 var Accessory, Service, Characteristic, UUIDGen, User, hap, StreamController;
 var ss; //SimpliSafe Client
+var interval;
 
 module.exports = homebridge => {
   Accessory = homebridge.platformAccessory;
@@ -59,6 +60,7 @@ class SimpliSafe {
           this.SocketEvents = ss.get_SokectEvents(data => {
             if (data==='DISCONNECT') {
               this.log("Event Socket Disconnected. Trying to reconnect...")
+              interval=5; // force sensors update
               ss.login_via_credentials(config.password);
               this.SocketEvents;
             }
@@ -221,23 +223,30 @@ class SimpliSafe {
               case ss.ssEventContactIds.doorbellRang:
                 service.getCharacteristic(this.characteristicConvertSStoHK(sensor.type)).updateValue(true);
                 break;
-                
+
+              case entrySensorSynced: "9704"
+              case entrySensorUnsynced: "9705"
+                this.log("entrySensorSync", data);
+                break;
+
+
               default:
                 this.log(data);
                 break;
             };
-                        
-            if (this.systemTemp == true) {
+            if (interval=="5") {
+              internal = 0            
+              if (this.systemTemp == true) {
                 ss.get_System()
                 .then((system)=>{
                   this.log('Refreshing System Temperature')
                   let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
                   accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue((system.temperature-32) * 5/9);  
                 })
-            };
+              };
           
-            ss.get_Sensors(false)
-            .then((sensors)=>{
+              ss.get_Sensors(false)
+              .then((sensors)=>{
               if (!sensors) return;
               sensors.forEach((sensor)=> {
                 if (this.supportedDevices.includes(sensor.type)) {
@@ -247,8 +256,10 @@ class SimpliSafe {
                   if (sensor.status.temperature != undefined) service.getCharacteristic(Characteristic.CurrentTemperature).updateValue((sensor.status.temperature-32) * 5/9);
                 };
               });
-            });
+              });
+            };
 
+            interval++;
           });
         });
       });
