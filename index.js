@@ -53,7 +53,7 @@ class SimpliSafe {
 
     if (api) {
       this.api = api;
-      this.api.on('didFinishLaunching',  ()=> { 
+      this.api.on('didFinishLaunching', ()=> { 
         this.initial.then(()=>{
           this.updateSS();
           this.SocketEvents = ss.get_SokectEvents(data => {
@@ -226,9 +226,16 @@ class SimpliSafe {
                 this.log(data);
                 break;
             };
-          });
+                        
+            if (this.systemTemp == true) {
+                ss.get_System()
+                .then((system)=>{
+                  this.log('Refreshing System Temperature')
+                  let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
+                  accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue((system.temperature-32) * 5/9);  
+                })
+            };
           
-          setInterval(()=>{
             ss.get_Sensors(false)
             .then((sensors)=>{
               if (!sensors) return;
@@ -241,18 +248,8 @@ class SimpliSafe {
                 };
               });
             });
-          }, (this.refresh_timer));
 
-          if (this.systemTemp == true) {
-            setInterval(()=>{
-                ss.get_System()
-                .then((system)=>{
-                  this.log('Refreshing System Temperature')
-                  let accessory = this.accessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.ssDeviceIds[ss.ssDeviceIds.baseStation] + ' ' + system.serial.toLowerCase()));
-                  accessory.getService(Service.TemperatureSensor).getCharacteristic(Characteristic.CurrentTemperature).updateValue((system.temperature-32) * 5/9);  
-                })
-            }, (300000));
-          };
+          });
         });
       });
     };
