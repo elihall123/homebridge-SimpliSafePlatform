@@ -598,7 +598,7 @@ class CameraSource {
       };
     };
 
-    let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv?x=${request.width}`], ['-t', 1], ['-s', `${request.width}x${request.height}`], ['-f', 'image2'], ['-vframes', 1], ['-']];
+    let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/mjpg ?x=${request.width}`], ['-t', 1], ['-s', `${request.width}x${request.height}`], ['-f', 'image2'], ['-vframes', 1], ['-']];
     let source = [].concat(...sourceArgs.map(arg => arg.map(a => typeof a == 'string' ? a.trim() : a)));
     let ffmpegCmd = require('child_process').spawn(require("@ffmpeg-installer/ffmpeg").path, [...source], {env: process.env})
     .on('error', error => {
