@@ -34,7 +34,7 @@ To use this, you must have a working Homebridge server running in your network a
             "name" : "SimpliSafe Client",
             "SerialNumber": "system serial",
             "username" : "email",
-            "password" : "password",
+            "password" : "password"
           }
         ]
 
