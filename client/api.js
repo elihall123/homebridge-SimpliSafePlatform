@@ -1,67 +1,66 @@
-var websession = require('https');
-var net = require('net');
-var vm = require('vm');
-
-var io = require("socket.io-client");
-
-var ffmpeg = require("@ffmpeg-installer/ffmpeg")
-var dns = require("dns").promises;
 var crypto = require("crypto");
-var spawn = require('child_process').spawn;
+var _access_token, _access_token_type, _email, _password, APICFGS;
 
-var _access_token;
-var _access_token_expire;
-var _access_token_type;
-var _email;
-var APICFGS;
-var LocalIP;
-var portrange=1025;
+var shutter_AlarmState = {
+  'off' : 'shutteroff',
+  'away' : 'shutterAway',
+  'home' : 'shutterHome'
+};
 
 class API {
   //Class SimpliSafe API
-  async _Authenticate(payload_data){
+  async _authenticate(payload_data){
     //Request token data...
     var self = this;
-    var resp = await self.request({
-      method:'POST',
-      endpoint:'api/token',
-      data: payload_data,
-      auth: "Basic: " + Buffer.from(self.uuid + ".2074.0.0.com.simplisafe.mobile" + ':').toString('base64'),
-    });
+    try {
+      var resp = await self.request({method:'POST', endpoint:'api/token', data: payload_data, auth: "Basic: " + Buffer.from(self.uuid + ".2074.0.0.com.simplisafe.mobile" + ':').toString('base64')});
+      _access_token = resp.access_token;
+      _access_token_type = resp.token_type;
+      self._refresh_token = resp.refresh_token;
+    } catch (err) {
+      throw(`Authenicate Error: ${err}`);
+    };
 
-    _access_token = resp.access_token;
-    _access_token_expire = Date.now() + ((resp.expires_in-60) * 1000);
-    _access_token_type = resp.token_type;
-    self._refresh_token = resp.refresh_token;
   };//End Of Function _authenticate
 
   async _get_UserID (){
     var self = this;
-    var resp = await self.request({method:'GET',endpoint: 'api/authCheck'})
-    self.user_id = resp['userId'];
+    try{
+      let resp = await self.request({method:'GET', endpoint: 'api/authCheck'});
+      self.user_id = resp.userId;
+    } catch (err) {
+      throw(`get_UserID Error: ${err}`);
+    };
+    
   };//End Of Function _getUserId
 
-  async _Refresh_Access_Token(refresh_token){
+  async _Refresh_Access_Token(refresh_token) {
     //Regenerate an access token.
     var self = this;
     self.log("Regenerating Access Token");
-    await self._Authenticate({'grant_type': 'refresh_token', 'username': _email, 'refresh_token': refresh_token,})
-    self._actively_refreshing = false;
+    try {
+      await self._authenticate({'grant_type': 'refresh_token', 'username': _email, 'refresh_token': refresh_token,});
+    } catch (err) {
+      throw(err);
+    }
+    self.actively_refreshing = false;
   };//End Of Function _refresh_access_token
 
-  constructor(SerialNumber, email, log) {
+  constructor(config, log, UUIDGen) {
     //Initialize.
     var self = this;
     if (!log) {self.log = console.log;} else {self.log = log;}
-    _email = email;
+    _email = config.username;
+    _password = config.password;
+    self.UUIDGen = UUIDGen;
     self.refresh_token_dirty = false;
-    self.serial = SerialNumber;
+    self.serial = config.SerialNumber;
     self.user_id;
     self.uuid = uuid4();
     self._refresh_token = '';
-    self._actively_refreshing = false;
-    self.cameras = {};
-    self.ssDeviceIds = {
+    self.actively_refreshing = false;
+    self.Accessories = [];
+    self.DeviceIds = {
       unknown: -1,
       baseStation: 0,
       keypad: 1,
@@ -80,7 +79,7 @@ class API {
       doorLock: 16
     };
 
-    self.ssSystemStates= {
+    self.SystemStates= {
       unknown: "unknown",
       off: "off",
       home: "home",
@@ -91,7 +90,7 @@ class API {
       alarm_count: "alarm_count"
     };
 
-    self.ssEventContactIds= {
+    self.EventContactIds= {
       unknown: "0000",
       alarmSmokeDetectorTriggered: "1110",
       alarmWaterSensorTriggered: "1154",
@@ -145,13 +144,18 @@ class API {
       sensorAdded: "1531",
       sensorNamed: "1533",
       wiFiUpdateSuccess: "3360",
-      wiFiUpdateFailure: "1360"
+      wiFiUpdateFailure: "1360",
+      entryunlocked: "9700",
+      entrylocked: "9701",
+      entrySensorSynced: "9704",
+      entrySensorUnsynced: "9705"
+
     };
     
 
   };//End Of Function Constructor
 
-  async get_System(){
+  async get_System() {
     //Get systems associated to this account.
     var self = this;
     try{
@@ -160,129 +164,119 @@ class API {
         if (system_data.location.system.serial === self.serial) {
             self.subId = system_data.sid;
             self.sysVersion = system_data.location.system.version;
-            for (var camera of system_data.location.system.cameras){
-              self.cameras[camera.uuid] = camera;
-            }
             return system_data.location.system;
           }
       };
-    } catch (e) {
-            self.log('Get_System',e);
-            return false;
+    } catch (err) {
+            throw(err);
     };
   };//End Of Function get_System
 
   async get_Sensors(cached = true) {
     var self = this;
+    
     var resp = await self.request({
       method:'GET',
       endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
-      params:{'forceUpdate': (cached==false).toString().toLowerCase()} //false = coming from cache
+      params:{'forceUpdate': cached.toString().toLowerCase()} //false = coming from cache
     });
     return resp.sensors;
   };//End Of Function get_Sensors
 
-  async login_via_credentials(password){
+  async login_via_credentials(){
     //Create an API object from a email address and password.
       var self = this;
-      if (!APICFGS) APICFGS = await ssAPICFGS();
-      APICFGS(self);
-  
-      await self._Authenticate({'grant_type': 'password', 'username': _email, 'password': password});
-      await self._get_UserID();
-      return;
+      if (!APICFGS) {
+        APICFGS = await ssAPICFGS();
+        APICFGS(self);
+      }
+
+      try {
+        await self._authenticate({'grant_type': 'password', 'username': _email, 'password': _password});
+        await self._get_UserID();
+        await self.uAccessories();
+
+      } catch (err) {
+        throw(`Login Error: ${err}`);
+      };
   };//End Of Function login_via_credentials
   
   async get_SokectEvents(callback) {
     var self = this;
-    /*        DATA: {
-            "eventTimestamp":1567686989,
-            "eventCid":9407,
-            "zoneCid":"0",
-            "sensorType":0,
-            "sensorSerial":"",
-            "account":"",
-            "userId":,
-            "sid":,
-            "info":"Exit Delay Countdown Triggered for Away Mode Remotely",
-            "pinName":"",
-            "sensorName":"",
-            "messageSubject":"",
-            "messageBody":"",
-            "eventType":"activityQuiet",
-            "timezone":0,
-            "locationOffset":-240,
-            "expires":60,
-            "internal":{"dispatcher":"cops","shouldNotify":false},
-            "senderId":"wifi",
-            "eventId":6170934771,
-            "serviceFeatures":{"monitoring":true,"alerts":true,"online":true,"video":false,"hazard":false},
-            "copsVideoOptIn":true,
-            "video":{
-              "uuid":{"clipId":stampdt,"preroll":5,"postroll":45,"cameraName":"name"},
-              "uuid":{"clipId":stampdt,"preroll":5,"postroll":45,"cameraName":"name"},
-              "uuid":{"clipId":stampdt,"preroll":5,"postroll":45,"cameraName":"name"}
-            },
-            "exitDelay":60
-          }
-*/
+    var interval;
 
     if (!self.socket) {
         try {
-            self.socket = io(`${self.simplisafe.webapp.apiHost}${self.simplisafe.webapp.apiPath}/user/${self.user_id}`, {
+            self.socket = require("socket.io-client")(`${self.simplisafe.webapp.apiHost}${self.simplisafe.webapp.apiPath}/user/${self.user_id}`, {
               path: '/socket.io',
               query: {
                 ns: `/v1/user/${self.user_id}`,
                 accessToken: _access_token
               },
+              "sync disconnect on unload": !0,
+              "force new connection": !0,
+              'reconnection': !0,
+              'reconnectionDelay': 1000,
+              'reconnectionAttempts': 10,
               transports: ['websocket']
             });
 
-            self.socket.on('connect', () => {
+            self.socket.on('connect', async () => {
               self.log('Event socket is up and monitoring');
             });
 
-            self.socket.on('connect_error', err => {
-                self.log("Socket", 'Connect_error', err);
-                self.socket = null;
+            self.socket.on('connect_error', async (err) => {
+                self.log("Socket Connect_error", err);
+                self.socket = undefined;
             });
 
-            self.socket.on('connect_timeout', () => {
-                self.log("Socket", 'Connect_timeout');
-                self.socket = null;
+            self.socket.on('connect_timeout', async () => {
+                self.log("Socket Connect_timeout");
+                self.socket = undefined;
             });
 
-            self.socket.on('error', err => {
-              self.log("Socket", 'error', err);
-              self.socket = null;
+            self.socket.on('error', async (err) => {
+              self.log("Socket error", err);
+              self.socket = undefined;
+              await self.login_via_credentials();
               callback('DISCONNECT');
             });
 
-            self.socket.on('disconnect', reason => {
-              self.socket = null;  
-              if (reason === 'transport close') {
-                  callback('DISCONNECT');
-                }
-                
+            self.socket.on('disconnect', async (reason) => {
+              self.socket = undefined;  
+              await self.login_via_credentials();
+              callback('DISCONNECT');
             });
 
-            self.socket.on('reconnect_failed', () => {
-              //self.log("Socket", 'failed reconnect');
-              self.socket = null;
+            self.socket.on('reconnect', async  () => {
+              self.log('Event socket is trying to reconnect');
             });
 
-            self.socket.on('hiddenEvent', data => {
+            self.socket.on('reconnect_failed', async () => {
+              self.log('Event socket failed to reconnect');
+              self.socket = undefined;
+              callback('DISCONNECT');
+            });
+
+            self.socket.on('hiddenEvent', async (data) => {
               callback(data);
             });    
 
-            self.socket.on('event', data => {
-              //self.log("Socket", data);
+            self.socket.on('event', async (data) => {  
               callback(data);
             });
 
-            self.socket.on('cameraEvent', data => {
-              //self.log("Socket", 'camera', data);
+            self.socket.on('cameraEvent', async (data) => {
+              self.log(data);
             });
+
+            self.socket.on("message", async (data)=>{
+              self.log(data);
+            });
+            
+            self.socket.on("pong", async ()=>{
+              await self.uAccessories();
+          });
 
         } catch (err) {
             throw err;
@@ -292,12 +286,6 @@ class API {
 
   async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
-    var refreshing = await setInterval(()=>{if (!self._actively_refreshing)  clearInterval(refreshing);}, 500);
-
-    if (_access_token_expire && Date.now() >= _access_token_expire && !self._actively_refreshing){
-      self._actively_refreshing = true;
-      await self._Refresh_Access_Token(self._refresh_token);
-    }
 
     var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
 
@@ -319,15 +307,26 @@ class API {
       method: method,
       headers: headers
     }
-    var resp = await webResponse(url, options, data);
-    self.cookie = resp.cookie;
-    if (resp.statusCode == 401 && !self._actively_refreshing) {
-      self._actively_refreshing = true;
-      await self._Refresh_Access_Token(self._refresh_token);
-      return resp.statusCode;
-    } else {
-      return resp.body;
-    }
+    try {
+      return await webResponse(url, options, data);
+    } catch(err)  {
+      if (err.statusCode == 401 && !self.actively_refreshing) {
+        try {
+          self.actively_refreshing = true;      
+          await self._Refresh_Access_Token(self._refresh_token);
+          return await webResponse(url, options, data);
+        } catch (err) {
+          if (err.statusCode == 401 && err.statusCode == 403) {
+            try {
+              await self.login_via_credentials();
+              return await webResponse(url, options, data);
+            } catch (err_1) {
+                  throw (err_1.statusMessage);
+            };
+          };
+        };  
+      };
+    };
   };//End Of Function Request
 
   async set_Alarm_State(value) {
@@ -338,24 +337,93 @@ class API {
         await this.get_System();
       }
   
-      let data = await self.request({
-        method: 'POST',
-        endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`
-      });
-
-      return data;
+      return await self.request({method: 'POST', endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`});
     } catch (err) {
-      throw err;
+      throw(`Set Alarm State : ${err}`);
     }
     
   };//End Of Function set_Alarm_State
+
+  async set_Lock_State(lockId, State) {
+    var self = this;
+    try {
+      if (!self.subId) {
+        await this.get_System();
+      }
+      return await self.request({method: 'POST', endpoint: `/doorlock/${this.subId}/${lockId}/state`, data: {state: State.toLowerCase()}});
+    } catch (err) {
+      throw(`Set Lock State : ${err}`);
+    }
+
+
+  };//End of set_Alarm_State
+
+  async uAccessories() {
+    var self = this;
+    let Accessory, index;
+    let system = await self.get_System();
+    {    
+      Accessory = {
+        'flags':{
+          offline: system.isOffline
+        },
+        'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === self.DeviceIds.baseStation),
+        'name': 'SimpliSafe Alarm System',
+        'serial': system.serial,
+        'status': {
+          'triggered': system.isAlarming ? 'ALARM' : system.alarmState,
+          'temp': system.temperature
+        },
+        'type': self.DeviceIds.baseStation,
+        'uuid': self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + system.serial.toLowerCase()),
+        'version': system.version
+      };
+
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == Accessory.uuid);
+      if (index == -1) this.Accessories.push(Accessory); else this.Accessories[index] = Accessory;
+    };
+
+    for (let camera of system.cameras){
+      Accessory = {
+        'flags': {
+          offline: camera.status=='online'? false : true,
+          shutter: system.isAlarming ? 'alarm' : camera.cameraSettings[shutter_AlarmState[system.alarmState.toLowerCase()]]
+        },
+        'model': camera.model,
+        'name': camera.cameraSettings.cameraName || 'Camera',
+        'serial': camera.uuid,
+        'status': {
+          'fps': camera.cameraSettings.admin.fps
+        },
+        'type': self.DeviceIds.camera,
+        'uuid': self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.camera] + ' ' + camera.uuid.toLowerCase()), 
+        'version': camera.model.toString().replace('SS','')
+      };
+
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == Accessory.uuid);
+      if (index == -1) this.Accessories.push(Accessory); else this.Accessories[index] = Accessory;
+
+    };
+
+    for (let sensor of await self.get_Sensors()){
+      Accessory = {
+        ...sensor,
+        'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type),
+        'uuid': self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase()),
+        'version': system.version 
+      };
+
+      index = this.Accessories.findIndex((sItem)=>sItem.uuid == Accessory.uuid);
+      if (index == -1) this.Accessories.push(Accessory); else this.Accessories[index] = Accessory;
+    };
+  };//End Of Function uAccessories
 
 };//End Of Class API
 
 class CameraSource {
   constructor(ssCamera, UUIDGen, StreamController, log) {
     this.ssCamera = ssCamera;
-    this.serverIpAddress = null;
+    let fps = ssCamera.status.fps;
     this.UUIDGen = UUIDGen;
     this.StreamController = StreamController;
     this.log = log;
@@ -368,17 +436,17 @@ class CameraSource {
       srtp: true,
       video: {
         resolutions: [
-          [320, 240, this.ssCamera.fps], 
+          [320, 240, fps], 
           [320, 240, 15], 
-          [320, 180, this.ssCamera.fps], 
+          [320, 180, fps], 
           [320, 180, 15], 
-          [480, 360, this.ssCamera.fps], 
-          [480, 270, this.ssCamera.fps], 
-          [640, 480, this.ssCamera.fps],
-          [848, 480, this.ssCamera.fps], 
-          [640, 360, this.ssCamera.fps], 
-          [1280, 720, this.ssCamera.fps],
-          [1920, 1080, this.ssCamera.fps]],
+          [480, 360, fps], 
+          [480, 270, fps], 
+          [640, 480, fps],
+          [848, 480, fps], 
+          [640, 360, fps], 
+          [1280, 720, fps],
+          [1920, 1080, fps]],
         codec: {
           profiles: [0, 1, 2],
           levels: [0, 1, 2]
@@ -395,9 +463,9 @@ class CameraSource {
     if (!APICFGS) APICFGS = ssAPICFGS();
     APICFGS(this);
 
-  }
+  }// End Of Constructor
 
-  handleStreamRequest = async (request) => {
+  async handleStreamRequest(request) {
     let sessionId = request.sessionID;
 
     if (sessionId) {
@@ -407,18 +475,11 @@ class CameraSource {
         let sessionInfo = this.pendingSessions[sessionIdentifier];
 
         if (sessionInfo) {
-          try{         
-            let serverIpAddress = await dns.lookup(this.simplisafe.webapp.mediaHost.replace('https://', ''));
-            this.serverIpAddress = serverIpAddress.address;
-          }catch(err){
-            console.error(err);
-            return;
-          };
-          
+
           let sourceArgs = [
             ['-re'],
             ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
-            ['-i', `https://${this.serverIpAddress}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv`]
+            ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv`]
           ];
 
           let videoArgs = [
@@ -437,7 +498,7 @@ class CameraSource {
             ['-ssrc', sessionInfo.video_ssrc],
             ['-f', 'rtp'], ['-srtp_out_suite', 'AES_CM_128_HMAC_SHA1_80'],
             ['-srtp_out_params', sessionInfo.video_srtp.toString('base64')],
-            ['srtp://' + sessionInfo.address + ':' + sessionInfo.video_port + '?rtcpport=' + sessionInfo.video_port + '&localrtcpport=' + await openPort(sessionInfo.video_port + 1) + '&pkt_size=1316']
+            [`srtp://${sessionInfo.address}:${sessionInfo.video_port}?rtcpport=${sessionInfo.video_port}&localrtcpport=${await openPort(sessionInfo.video_port + 1)}&pkt_size=1316`]
           ];
 
           let audioArgs = [
@@ -480,11 +541,11 @@ class CameraSource {
             }
           })));
 
-          let cmd = spawn(ffmpeg.path, [...source, ...video, ...audio], {env: process.env});
+          let cmd = require('child_process').spawn(require("@ffmpeg-installer/ffmpeg").path, [...source, ...video, ...audio], {env: process.env});
 
           this.log(`Start streaming video from ${this.ssCamera.name}`);
           cmd.stderr.on('data', data => {
-            this.log(data.toString());
+            //this.log(data.toString());
           });
           cmd.on('error', err => {
             this.log('An error occurred while making stream request');
@@ -495,7 +556,7 @@ class CameraSource {
               case null:
               case 0:
               case 255:
-                this.log('Stopped streaming');
+                this.log(`${this.ssCamera.name} camera stopped streaming`);
                 break;
 
               default:
@@ -518,18 +579,43 @@ class CameraSource {
         delete this.ongoingSessions[sessionIdentifier];
       }
     }
-  };
+  };// End of Function
 
-  handleCloseConnection(connId) {
+  async handleCloseConnection(connId) {
     this.streamControllers.forEach(controller => {
       controller.handleCloseConnection(connId);
     });
-  }
+  }; //End of Function handleCloseConnection
 
-  handleSnapshotRequest(request, callback) {
-    this.log('Snapshot request. Not yet supported');
-    callback(new Error('Snapshots not yet supported'));
-  }
+  async handleSnapshotRequest(request, callback) {
+    if (this.ssCamera.flags.offline) {
+      callback(new Error(`${this.ssCamera.name} is offline.`))
+    };
+
+    if (this.ssCamera.model == 'SS001') {
+      if (this.ssCamera.flags.shutter != 'open' || this.ssCamera.flags.shutter != 'alarm') {
+        callback(new Error(`${this.ssCamera.name} privacy shutter is close.`))
+      };
+    };
+
+    let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv?x=${request.width}`], ['-t', 1], ['-s', `${request.width}x${request.height}`], ['-f', 'image2'], ['-vframes', 1], ['-']];
+    let source = [].concat(...sourceArgs.map(arg => arg.map(a => typeof a == 'string' ? a.trim() : a)));
+    let ffmpegCmd = require('child_process').spawn(require("@ffmpeg-installer/ffmpeg").path, [...source], {env: process.env})
+    .on('error', error => {
+      callback(error);
+    })
+    .on('close', () => {
+       callback(null, imageBuffer);
+    });
+
+    let imageBuffer = Buffer.alloc(0);
+
+    ffmpegCmd.stdout
+    .on('data', data => {
+      imageBuffer = Buffer.concat([imageBuffer, data]);
+    });
+  
+  };// End of Function handleSnapshotRequest
 
   async prepareStream(request, callback) {
     let response = {};
@@ -569,25 +655,36 @@ class CameraSource {
       sessionInfo.audio_srtp = Buffer.concat([request.audio.srtp_key, request.audio.srtp_salt]);
       sessionInfo.audio_ssrc = ssrc;
     }
-
+    
+    var data = await ipLookUp(this.simplisafe.webapp.mediaHost.replace('https://', ''));
     response.address = {
-      address: LocalIP,
-      type: getIPVersion(LocalIP)
+      address: data.address,
+      type: data.family
     };
 
     this.pendingSessions[this.UUIDGen.unparse(sessionID)] = sessionInfo;
     callback(response);
-  }
+  };// End of Function prepareStream
 
-  createStreamControllers(maxStreams, options) {
+  async createStreamControllers(maxStreams, options) {
     for (let i = 0; i < maxStreams; i++) {
       let streamController = new this.StreamController(i, options, this);
       this.services.push(streamController.service);
       this.streamControllers.push(streamController);
     }
-  }
+  };// End of Function createStreamControllers
 
 }//End Of Class CameraSource
+
+function ipLookUp(hostName) {
+  return new Promise((resolve) => {
+    const req = require('https').get({host: hostName}, (res) => {
+        var local = res.socket.address();
+        local["remotoeAddress"] = req.connection.remoteAddress;
+        resolve(local);
+    });
+  });
+};//End Of Function ipLookUp
 
 function uuid4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -597,76 +694,52 @@ function uuid4() {
 };// End of Function uuid4
 
 async function webResponse(url, options, data){
-  return new Promise(async (resolve, reject) => {
-    const req = await websession.request(url.href, options, (res) => {
-      var ret = {};
-      var body = '';
-      ret = {statusCode: res.statusCode};
-      ret = {...ret,
-              'headers': res.headers}
-      if (res.headers['set-cookie']) ret = {...ret, 'cookie': res.headers['set-cookie']}
-      if (res.headers['content-encoding'] && res.headers['content-encoding'].indexOf('gzip') > -1) {
-        var zlib = require("zlib");
-        var gunzip = zlib.createGunzip();
-        res.pipe(gunzip);
-
-        gunzip.on('data', function(data) {
-          ret = {...ret,
-                'body': data.toString()
-          }      
-          resolve(ret);
-        });
-      } else {
-        //if (res.headers['content-type'].indexOf('utf-8') > -1) res.setEncoding('utf8');
-        res.on('data', (chunk) => { body += chunk;}) ;
-        res.on('end', () => {
-          if (typeof res.headers['content-type']!=='undefined' && res.headers['content-type'].indexOf('application/json') > -1) {
-            ret = {...ret,
-                    'body': JSON.parse(body)
+    return new Promise(async (resolve, reject) => {
+      const lib = url.href.startsWith('https') ? require('https') : require('http');
+      const req = await lib.request(url.href, options, (res) => {
+        if (res.statusCode < 200 || res.statusCode > 299) {
+          reject(res);
+        }
+        var body = [];
+        if (res.headers['content-encoding'] && res.headers['content-encoding'].indexOf('gzip') > -1) {
+          var zlib = require("zlib");
+          var gunzip = zlib.createGunzip();
+          res.pipe(gunzip);
+          gunzip.on('data', function(data) {
+            resolve(data.toString());
+          });
+        } else {
+          res.on('data', (chunk) => body.push(chunk)) ;
+          res.on('end', () => {
+            if (typeof res.headers['content-type']!=='undefined' && res.headers['content-type'].indexOf('application/json') > -1) {
+              resolve(JSON.parse(body.join('')));
+            } else {
+              resolve(body.join(''))
             }
-            resolve(ret);
-          } else {
-            ret = {...ret,
-                  'body': body
-            }
-            resolve(ret);
-          }
-        });
-      };
-    });
+          });
+        };
+      });
+    
+      req.on('error', (err) => reject(err));
+  
+      if (data) req.write(JSON.stringify(data));
+      req.end();
+    }).catch((err) => {throw err});
 
-    req.on('error', (e) => {
-      console.error(`problem with request: ${e.message}`);
-    });
-
-
-    if (data) req.write(JSON.stringify(data));
-    req.end();
-    req.once('response', (res) => {
-      LocalIP = req.socket.localAddress;
-    });
-  });
 };//End Of Function webResponse
 
 async function ssAPICFGS() {
   var resp = await webResponse(new URL('https://webapp.simplisafe.com/ssAppConfig.js'), {METHOD: 'GET'});
-  resp = resp.body.replace('})(window);', 'return g;});')
+  resp = resp.replace('})(window);', 'return g;});')
               .replace('var a=', 'var a=g.')
               .replace(';', '');
-  return vm.runInThisContext(resp);
+  return require('vm').runInThisContext(resp);
 };//End Of Function ssAPICFGS
-
-function getIPVersion(Address) {
-  if (Address.toString().split('.').length == 4) {return 'v4'} else {return 'v6'};
-
-};//End Of Function getIPVersion
-
-
 
 function openPort(startingAt) {
 
   function getNextAvailablePort (currentPort, cb) {
-      const server = net.createServer()
+      const server = require('net').createServer();
       server.listen(currentPort, _ => {
           server.once('close', _ => {
               cb(currentPort)
@@ -681,7 +754,7 @@ function openPort(startingAt) {
   return new Promise(resolve => {
       getNextAvailablePort(startingAt, resolve)
   })
-}
+};//ENd of Function openPort
 
 module.exports = {
   API,
