@@ -12,7 +12,7 @@ To use this, you must have a working Homebridge server running in your network a
 ## Notes
 - Usage of this plugin requires the extra $10/month online monitoring plan, since that enables the required API endpoints to control the alarm remotely.
 - Removed the ability for Cellular Versions. The system has a Voice Prompt that is unable to be turned off.
-- Do to simlisafe limitations Cameras will not work on ipv6.
+- Do to SimpliSafe limitations Cameras will not work on ipv6.
 
 
 ## Installation
