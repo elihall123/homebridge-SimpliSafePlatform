@@ -25,9 +25,7 @@ class SimpliSafe {
 
   constructor(log, config, api) {
     this.log = log;
-
     this.hkAccessories = [];
-    
     ss = new API(config, log, UUIDGen);
 
     this.supportedHKDevices = [
@@ -46,201 +44,199 @@ class SimpliSafe {
     try{
       this.initial = ss.login_via_credentials();
     } catch (err) {
-      this.log("here", err);
+      this.log("ssAPI Login Error:", err);
     }
 
     if (api) {
       this.api = api;
       this.api.on('didFinishLaunching', ()=> { 
         this.initial.then(()=>{
-          this.updateHKAccessories();          
-          this.SocketEvents = ss.get_SokectEvents(data => {
-            if (!data.eventCid) return;
-            if (data.sid != ss.subId) return;
-            if (!this.supportedHKDevices.includes(data.sensorType)) return;
-
-            let accessory;
-
-            if (data.sensorType == ss.DeviceIds.baseStation) {
-              accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.account.toLowerCase()));
-            } else if (data.sensorType == ss.DeviceIds.camera) {
-              accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.internal.maincamera.toLowerCase()));
-            } else {
-              accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()));
-            };
-            
-            let service = accessory.getService(this.serviceConvertSStoHK(data.sensorType));
-
-            switch (data.eventCid.toString()) {
-              case ss.EventContactIds.systemArmed:
-              case ss.EventContactIds.alarmCanceled:
-                this.log(data);
-                break;
-
-              case ss.EventContactIds.alarmSmokeDetectorTriggered:
-              case ss.EventContactIds.alarmPanicButtonTriggered:
-              case ss.EventContactIds.alarmMotionOrGlassbreakSensorTriggered:
-              case ss.EventContactIds.alarmEntrySensorTriggered:
-              case ss.EventContactIds.alarmOther:
-              case ss.EventContactIds.alarmWaterSensorTriggered:
-              case ss.EventContactIds.alarmHeatSensorTriggered:
-              case ss.EventContactIds.alarmFreezeSensorTriggered:
-              case ss.EventContactIds.alarmCoSensorTriggered:
-                this.log("System Alarm Triggered form");
-                service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
-                break;
-
-              case ss.EventContactIds.alarmSmokeDetectorStopped: 
-              case ss.EventContactIds.alarmWaterSensorStopped:
-              case ss.EventContactIds.alarmFreezeSensorStopped:
-              case ss.EventContactIds.alarmCoSensorStopped:
-              case ss.EventContactIds.alarmHeatSensorStopped:
-                this.log("System Alarm Silenced");
-                service.setCharacteristic(Characteristic.SecuritySystemCurrentState, accessory.getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState));
-                break;
-
-              case ss.EventContactIds.systemHome2:
-              case ss.EventContactIds.systemArmedHome:
-                if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.STAY_ARM) {
-                  this.log("System Set for Home"); 
-                  service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);  
-                };
-                break;
-
-              case ss.EventContactIds.systemArmedAway:
-              case ss.EventContactIds.systemAwayRemote:
-              case ss.EventContactIds.systemAway2:
-              case ss.EventContactIds.systemAway2Remote:
-                if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.AWAY_ARM) {
-                  this.log("System Set for Away");
-                  service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM); 
-                };
-                break;
-
-              case ss.EventContactIds.alarmCanceled:
-              case ss.EventContactIds.systemDisarmed:
-              case ss.EventContactIds.systemOff:
-                if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.DISARMED) {
-                  this.log("System Disarm");
-                  service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED); 
-                };
-                break;
-
-              case ss.EventContactIds.sensorError:
-                this.log(`${accessory.displayName} sensor error.`);
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
-                break;
-
-              case ss.EventContactIds.sensorRestored:
-                this.log(`${accessory.displayName} sensor restored.`);
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
-                break;
-                
-              case ss.EventContactIds.entryDelay:
-                service.setCharacteristic(this.characteristicConvertSStoHK(sensor.type), Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
-                break;
-
-              case ss.EventContactIds.alertSecret:
-                service.setCharacteristic(this.characteristicConvertSStoHK(sensor.type), true);
-                break;
-  
-              case ss.EventContactIds.warningSensorOpen:
-                this.log(data);
-                this.log(`${accessory.displayName} sensor opened.`);
-                // Need to figure out in how to send a message to the HK.
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
-                break;
-
-              case ss.EventContactIds.batteryLow:
-                this.log(`${accessory.displayName} sensor battery is low.`);
-                service.setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW);
-                break;
-
-              case ss.EventContactIds.batteryRestored:
-                this.log(`${accessory.displayName} sensor battery has been restored.`);
-                service.setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
-                break;
-
-              case ss.EventContactIds.wiFiOutage:
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
-                break;
-
-              case ss.EventContactIds.wiFiRestored:
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
-                break;
-
-              case ss.EventContactIds.sensorAdded:
-                this.ssAccessories.push({uuid: UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()), 'type': data.sensorType, 'serial': data.sensorSerial, 'name': data.sensorName});
-                this.updateSS();
-                break;
-
-              case ss.EventContactIds.sensorNamed:
-                this.log(`${accessory.displayName} changed to ${data.sensorName}`);
-                accessory.displayName = data.sensorName;
-                break;
-
-              case ss.EventContactIds.systemPowerOutage:
-              case ss.ssEventContactIdssystemInterferenceDetected:
-                this.log(`${accessory.displayName} fault.`);
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
-                break;
-                
-              case ss.EventContactIds.systemPowerRestored:
-              case ss.EventContactIds.systemInterferenceResolved:
-                this.log(`${accessory.displayName} restored.`);
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
-                break;
-
-              case ss.EventContactIds.systemHomeCount:
-              case ss.EventContactIds.systemAwayCount:
-              case ss.EventContactIds.systemAwayCountRemote:
-                this.log(`${accessory.displayName} ${data.exitDelay} second(s) count down started.`);
-                break;
-
-              case ss.EventContactIds.cameraRecording:
-                service.setCharacteristic(this.Characteristic.MotionDetected, true);
-                setTimeout(() => {
-                  service.setCharacteristic(this.Characteristic.MotionDetected, false);
-                }, 3000);
-                break;
-  
-              case ss.EventContactIds.doorbellRang:
-                service.setCharacteristic(this.Characteristic.MotionDetected, true);
-                setTimeout(() => {
-                  service.setCharacteristic(this.Characteristic.MotionDetected, false);
-                }, 3000);
-                break;
-
-              case ss.EventContactIds.entryunlocked:
-                this.log(`Unlocked ${data.displayNmae}`);
-                service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED); 
-                break;
-
-              case ss.EventContactIds.entrylocked:
-                this.log(`Locked ${data.displayNmae}`);
-                service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED); 
-                break;
-
-              case ss.EventContactIds.entrySensorSynced:
-                this.log(`Sensor Unsynced with ${data.displayNmae}`);
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
-                break;
-
-              case ss.EventContactIds.entrySensorUnsynced:
-                this.log(`Sensor Unsynced with ${data.displayNmae}`);
-                service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
-                break;
-
-              default:
-                this.log(data);
-                break;
-            };
-
-          });
+          this.updateHKAccessories();
+          this.ssEventsHandler();          
         });
       });
     };
   };//End Of Function SimpliSafe 
+
+  ssEventsHandler(){
+    ss.get_SokectEvents((data) => {
+/*      if (data==='DISCONNECT') {
+        this.log("Socket was disconnected. Trying to reconnect...")
+        this.ssEventsHandler();
+      }
+*/
+      if (!data.eventCid) return;
+      if (data.sid != ss.subId) return;
+      if (!this.supportedHKDevices.includes(data.sensorType)) return;
+
+      let accessory;
+
+      this.log(data.messageBody);
+
+      if (data.sensorType == ss.DeviceIds.baseStation) {
+        accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.account.toLowerCase()));
+      } else if (data.sensorType == ss.DeviceIds.camera) {
+        accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.internal.maincamera.toLowerCase()));
+      } else {
+        accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()));
+      };
+      
+      let service = accessory.getService(this.serviceConvertSStoHK(data.sensorType));
+
+      switch (data.eventCid.toString()) {
+        case ss.EventContactIds.systemArmed:
+        case ss.EventContactIds.alarmCanceled:
+          this.log(data);
+          break;
+
+        case ss.EventContactIds.alarmSmokeDetectorTriggered:
+        case ss.EventContactIds.alarmPanicButtonTriggered:
+        case ss.EventContactIds.alarmMotionOrGlassbreakSensorTriggered:
+        case ss.EventContactIds.alarmEntrySensorTriggered:
+        case ss.EventContactIds.alarmOther:
+        case ss.EventContactIds.alarmWaterSensorTriggered:
+        case ss.EventContactIds.alarmHeatSensorTriggered:
+        case ss.EventContactIds.alarmFreezeSensorTriggered:
+        case ss.EventContactIds.alarmCoSensorTriggered:
+          service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED);
+          break;
+
+        case ss.EventContactIds.alarmSmokeDetectorStopped: 
+        case ss.EventContactIds.alarmWaterSensorStopped:
+        case ss.EventContactIds.alarmFreezeSensorStopped:
+        case ss.EventContactIds.alarmCoSensorStopped:
+        case ss.EventContactIds.alarmHeatSensorStopped:
+          service.setCharacteristic(Characteristic.SecuritySystemCurrentState, accessory.getService(Service.SecuritySystem).getCharacteristic(Characteristic.SecuritySystemTargetState));
+          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM); 
+          break;
+
+        case ss.EventContactIds.systemHome2:
+        case ss.EventContactIds.systemArmedHome:
+          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.STAY_ARM) {
+            service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);
+            if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM); 
+          };
+          break;
+
+        case ss.EventContactIds.systemArmedAway:
+        case ss.EventContactIds.systemAwayRemote:
+        case ss.EventContactIds.systemAway2:
+        case ss.EventContactIds.systemAway2Remote:
+          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.AWAY_ARM) {
+            service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM); 
+            if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM); 
+          };
+          break;
+
+        case ss.EventContactIds.alarmCanceled:
+        case ss.EventContactIds.systemDisarmed:
+        case ss.EventContactIds.systemOff:
+          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.DISARMED) {
+            service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED); 
+            if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARMED); 
+          };
+          break;
+
+        case ss.EventContactIds.sensorError:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+          break;
+
+        case ss.EventContactIds.sensorRestored:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+          break;
+          
+        case ss.EventContactIds.entryDelay:
+          service.setCharacteristic(this.characteristicConvertSStoHK(sensor.type), Characteristic.ContactSensorState.CONTACT_NOT_DETECTED);
+          break;
+
+        case ss.EventContactIds.alertSecret:
+          service.setCharacteristic(this.characteristicConvertSStoHK(sensor.type), true);
+          break;
+
+        case ss.EventContactIds.warningSensorOpen:
+          this.log(data);
+          // Need to figure out in how to send a message to the HK.
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+          break;
+
+        case ss.EventContactIds.batteryLow:
+          service.setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW);
+          break;
+
+        case ss.EventContactIds.batteryRestored:
+          service.setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
+          break;
+
+        case ss.EventContactIds.wiFiOutage:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+          break;
+
+        case ss.EventContactIds.wiFiRestored:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+          break;
+
+        case ss.EventContactIds.sensorAdded:
+          this.ssAccessories.push({uuid: UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.sensorSerial.toLowerCase()), 'type': data.sensorType, 'serial': data.sensorSerial, 'name': data.sensorName});
+          this.updateSS();
+          break;
+
+        case ss.EventContactIds.sensorNamed:
+          accessory.displayName = data.sensorName;
+          break;
+
+        case ss.EventContactIds.systemPowerOutage:
+        case ss.ssEventContactIdssystemInterferenceDetected:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+          break;
+          
+        case ss.EventContactIds.systemPowerRestored:
+        case ss.EventContactIds.systemInterferenceResolved:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+          break;
+
+        case ss.EventContactIds.systemHomeCount:
+        case ss.EventContactIds.systemAwayCount:
+        case ss.EventContactIds.systemAwayCountRemote:
+          break;
+
+        case ss.EventContactIds.cameraRecording:
+          service.setCharacteristic(this.Characteristic.MotionDetected, true);
+          setTimeout(() => {
+            service.setCharacteristic(this.Characteristic.MotionDetected, false);
+          }, 3000);
+          break;
+
+        case ss.EventContactIds.doorbellRang:
+          service.setCharacteristic(this.Characteristic.MotionDetected, true);
+          setTimeout(() => {
+            service.setCharacteristic(this.Characteristic.MotionDetected, false);
+          }, 3000);
+          break;
+
+        case ss.EventContactIds.entryunlocked:
+          service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED); 
+          break;
+
+        case ss.EventContactIds.entrylocked:
+          service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.SECURED); 
+          break;
+
+        case ss.EventContactIds.entrySensorSynced:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+          break;
+
+        case ss.EventContactIds.entrySensorUnsynced:
+          service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+          break;
+
+        default:
+          this.log(data);
+          break;
+      };
+
+    });
+
+  };//End Of Function ssEventsHandler
   
   AccCatConvertSStoHK(type){
     switch (type) {
@@ -273,7 +269,9 @@ class SimpliSafe {
         return (Service.SmokeSensor);
       case ss.DeviceIds.freezeSensor:
         return (Service.TemperatureSensor);
-    };
+      case ss.DeviceIds.doorLock:
+        return (Service.LockMechanism);
+          };
   };//End Of Function serviceConvertSStoHK
   
   characteristicConvertSStoHK(type){
@@ -358,15 +356,12 @@ class SimpliSafe {
           .on('set', async (state, callback)=>{
             switch (state) {
               case Characteristic.SecuritySystemTargetState.STAY_ARM:
-                this.log('Arming System for Home.');
                 await ss.set_Alarm_State("home");
                 break;
               case Characteristic.SecuritySystemTargetState.AWAY_ARM:
-                this.log('Arming System for Away.');
                 await ss.set_Alarm_State("away");
                 break;
               case Characteristic.SecuritySystemTargetState.DISARM:
-                this.log('Disarming System.');
                 await ss.set_Alarm_State("off");
                 break;
             };
@@ -397,7 +392,7 @@ class SimpliSafe {
           break;
 
         case ss.DeviceIds.doorLock: // Door locks handled like basestation
-          if (!hkAccessory.getService(this.Service.LockMechanism)) hkAccessory.addService(Service.LockMechanism);
+          if (!hkAccessory.getService(Service.LockMechanism)) hkAccessory.addService(Service.LockMechanism);
           hkService = hkAccessory.getService(Service.LockMechanism);
           
           if (ssAccessory.status.lockState==0) {
@@ -415,15 +410,13 @@ class SimpliSafe {
             hkService.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNKNOWN);
           };
 
-          hkService.getCharacteristic(this.Characteristic.LockTargetState)
+          hkService.getCharacteristic(Characteristic.LockTargetState)
           .on('set', async (state, callback) => {
-            if (state==-Characteristic.LockTargetState.SECURED){
-              this.log(`Updating lock ${ssAccessory.name} state to lock`);
-              await ss.setLockState(this.id, 'lock');
+            if (state==Characteristic.LockTargetState.SECURED){
+              await ss.set_Lock_State(ssAccessory.serial, 'lock');
               
-            } else if (state==-Characteristic.LockTargetState.UNSECURED) {
-              this.log(`Updating lock ${ssAccessory.name} state to unlock`);
-              await ss.setLockState(this.id, 'unlock');
+            } else if (state==Characteristic.LockTargetState.UNSECURED) {
+              await ss.set_Lock_State(ssAccessory.serial, 'unlock');
 
             };
             callback(null);
