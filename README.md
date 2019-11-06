@@ -6,9 +6,9 @@ To use this, you must have a working Homebridge server running in your network a
 
 
 ## Screenshots
-![View from the home app](/screenshots/0C99F13D-FD5D-406A-AE59-4EBD4BDE7FA8.png?raw=true "View from the Home app.")
-![Controlling alarm system](/screenshots/452C5BBE-2D92-4F19-A72F-232E3BA4AB5E.png?raw=true "Controlling the alarm system.")
-![System Sensors](/screenshots/E185B5D0-747D-4E25-B57A-7792E6E0295B.png?raw=true "Example of system sensors.")
+![View from the home app](/screenshots/HomeApp.png?raw=true "View from the Home app.")
+![Controlling alarm system](/screenshots/Alarm.png?raw=true "Controlling the alarm system.")
+![System Sensors](/screenshots/Sensors.png?raw=true "Example of system sensors.")
 ## Notes
 - Usage of this plugin requires the extra $10/month online monitoring plan, since that enables the required API endpoints to control the alarm remotely.
 - Removed the ability for Cellular Versions. The system has a Voice Prompt that is unable to be turned off.
