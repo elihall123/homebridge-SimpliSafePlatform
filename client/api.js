@@ -1,5 +1,5 @@
 var crypto = require("crypto");
-var _access_token, _access_token_type, APICFGS;
+var access_token, access_token_type, APICFGS;
 
 var shutter_AlarmState = {
   'off' : 'shutteroff',
@@ -8,17 +8,22 @@ var shutter_AlarmState = {
 };
 
 class API {
+  //Class SimpliSafe API
   #email;
   #password;
-  //Class SimpliSafe API
+  #refresh_token;
+  #actively_refreshing = false;
+  #access_token_expire;
+
   async _authenticate(payload_data){
     //Request token data...
     var self = this;
     try {
-      var resp = await self.request({method:'POST', endpoint:'api/token', data: payload_data, auth: "Basic: " + Buffer.from(self.uuid + ".2074.0.0.com.simplisafe.mobile" + ':').toString('base64')});
-      _access_token = resp.access_token;
-      _access_token_type = resp.token_type;
-      self._refresh_token = resp.refresh_token;
+      var resp = await self._Request({method:'POST', endpoint:'api/token', data: payload_data, auth: "Basic: " + Buffer.from(self.uuid + ".2074.0.0.com.simplisafe.mobile" + ':').toString('base64')});
+      access_token = resp.access_token;
+      access_token_type = resp.token_type;
+      self.#access_token_expire = Date.now() + ((resp.expires_in-60) * 1000);
+      self.#refresh_token = resp.refresh_token;
     } catch (err) {
       throw(`Authenicate Error: ${err}`);
     };
@@ -28,7 +33,7 @@ class API {
   async _get_UserID (){
     var self = this;
     try{
-      let resp = await self.request({method:'GET', endpoint: 'api/authCheck'});
+      let resp = await self._Request({method:'GET', endpoint: 'api/authCheck'});
       self.user_id = resp.userId;
     } catch (err) {
       throw(`get_UserID Error: ${err}`);
@@ -36,17 +41,152 @@ class API {
     
   };//End Of Function _getUserId
 
-  async _Refresh_Access_Token(refresh_token) {
+  async _Refresh_Access_Token(token) {
     //Regenerate an access token.
     var self = this;
     self.log("Regenerating Access Token");
     try {
-      await self._authenticate({'grant_type': 'refresh_token', 'username': _email, 'refresh_token': refresh_token,});
+      await self._authenticate({'grant_type': 'refresh_token', 'username': this.#email, 'refresh_token': token,});
     } catch (err) {
       throw(err);
     }
-    self.actively_refreshing = false;
+    self.#actively_refreshing = false;
   };//End Of Function _refresh_access_token
+
+  async _Request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
+    var self = this;
+
+    var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
+
+    if (params){
+      Object.keys(params).forEach(item=> {
+          url.searchParams.append(item.toString(), params[item]);
+      });
+    };
+
+    if (!kwargs.auth) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
+
+    headers={
+            ...headers,
+            'Content-Type': 'application/json; charset=utf-8',
+            "User-Agent": "SimpliSafe/2105 CFNetwork/902.2 Darwin/17.7.0"
+    };
+
+    var options = {
+      method: method,
+      headers: headers
+    }
+    try {
+      return await webResponse(url, options, data);
+    } catch(err)  {
+      if (err.statusCode == 401 && !self.#actively_refreshing) {
+        try {
+          self.#actively_refreshing = true;      
+          await self._Refresh_Access_Token(self.#refresh_token);
+          return await webResponse(url, options, data);
+        } catch (err) {
+          if (err.statusCode == 401 && err.statusCode == 403) {
+            try {
+              await self.login_via_credentials();
+              return await webResponse(url, options, data);
+            } catch (err) {
+                  throw (err);
+            };
+          };
+        };  
+      } else if (err.statusCode == 409) {
+        setTimeout(async () => {
+          return await webResponse(url, options, data);
+        }, 3000);
+      };
+    };
+  };//End Of Function Request
+
+  async _uAccessories() {
+    var self = this;
+    let Accessory, index;
+    let system = await self.get_System();
+    {
+      let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + system.serial.toLowerCase());
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+      if (index == -1) {
+        this.Accessories.push({
+          flags:{
+            offline: system.isOffline
+          },
+          model: Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === self.DeviceIds.baseStation),
+          name: 'SimpliSafe Alarm System',
+          serial: system.serial,
+          status: {
+            triggered: system.isAlarming ? 'ALARM' : system.alarmState,
+            temp: system.temperature
+          },
+          type: self.DeviceIds.baseStation,
+          uuid: uuid,
+          version: system.version
+        });
+      } else {
+        Accessory = this.Accessories[index];
+        Accessory.flags.offline = system.isOffline;
+        Accessory.status.triggered = system.isAlarming ? 'ALARM' : system.alarmState;
+        Accessory.status.temp = system.temperature;
+      };
+    };
+
+    for (let camera of system.cameras){
+      let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.camera] + ' ' + camera.uuid.toLowerCase());
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+      if (index == -1) {
+        this.Accessories.push({
+          flags: {
+            offline: camera.status=='online'? false : true,
+            shutter: system.isAlarming ? 'alarm' : camera.cameraSettings[shutter_AlarmState[system.alarmState.toLowerCase()]]
+          },
+          model: camera.model,
+          name: camera.cameraSettings.cameraName || 'Camera',
+          serial: camera.uuid,
+          status: {
+            fps: camera.cameraSettings.admin.fps
+          },
+          type: self.DeviceIds.camera,
+          uuid: uuid, 
+          version: camera.model.toString().replace('SS','')
+        });
+      } else {
+        Accessory = this.Accessories[index];
+        Accessory.flags.offline = camera.status=='online'? false : true;
+        Accessory.flags.shutter = system.isAlarming ? 'alarm' : camera.cameraSettings[shutter_AlarmState[system.alarmState.toLowerCase()]];
+        Accessory.status.fps = camera.cameraSettings.admin.fps;
+      };
+    };
+
+    for (let sensor of await self.get_Sensors()){
+      let uuid = self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase());
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+      if (index == -1) {
+        this.Accessories.push({
+          ...sensor,
+          'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type), 
+          'uuid': uuid,
+          'version': system.version
+        });
+      } else {
+        Accessory = this.Accessories[index];
+        Accessory.status.triggered = sensor.status.triggered;
+        Accessory.deviceGroupID =sensor.deviceGroupID;
+        Accessory.setting.instantTrigger = sensor.setting.instantTrigger;
+        Accessory.setting.away2 = sensor.setting.away2;
+        Accessory.setting.away = sensor.setting.away;
+        Accessory.setting.home2 = sensor.setting.home2;
+        Accessory.setting.home = sensor.setting.home;
+        Accessory.setting.off = sensor.setting.off;
+        Accessory.flags.swingerShutdown = sensor.flags.swingerShutdown;
+        Accessory.flags.lowBattery = sensor.flags.lowBattery; 
+        Accessory.flags.offline = sensor.flags.offline; 
+        if (sensor.status.temperature) Accessory.status.temperature = sensor.status.triggered;
+      };
+    };
+  };//End Of Function uAccessories
 
   constructor(config, log, UUIDGen) {
     //Initialize.
@@ -55,12 +195,10 @@ class API {
     this.#email = config.username;
     this.#password = config.password;
     self.UUIDGen = UUIDGen;
-    self.refresh_token_dirty = false;
     self.serial = config.SerialNumber;
     self.user_id;
     self.uuid = uuid4();
-    self._refresh_token = '';
-    self.actively_refreshing = false;
+    
     self.Accessories = [];
     self.DeviceIds = {
       unknown: -1,
@@ -161,7 +299,7 @@ class API {
     //Get systems associated to this account.
     var self = this;
     try{
-      var resp = await self.request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
+      var resp = await self._Request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
       for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
             self.subId = system_data.sid;
@@ -177,12 +315,12 @@ class API {
   async get_Sensors(cached = true) {
     var self = this;
     try{
-      return (await self.request({
+      let resp =  (await self._Request({
         method:'GET',
         endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
         params:{'forceUpdate': cached.toString().toLowerCase()} //false = coming from cache
-      })).sensors;
-
+      }));
+      if (resp.sensors != undefined) return resp.sensors; else throw('Sensors')
     } catch (err) {
       throw (err);
     };
@@ -199,7 +337,7 @@ class API {
       try {
         await self._authenticate({'grant_type': 'password', 'username': this.#email, 'password': this.#password});
         await self._get_UserID();
-        await self.uAccessories();
+        await self._uAccessories();
 
       } catch (err) {
         throw(`Login Error: ${err}`);
@@ -212,43 +350,48 @@ class API {
     if (!self.socket) {
         try {
             self.socket = require("socket.io-client")(`${self.simplisafe.webapp.apiHost}${self.simplisafe.webapp.apiPath}/user/${self.user_id}`, {
-              path: '/socket.io',
-              query: {
-                ns: `/v1/user/${self.user_id}`,
-                accessToken: _access_token
-              },
-              reconnection: true,
+              resource: 'socket.io',
+              query: "ns=" + `${self.simplisafe.webapp.apiPath}/user/${self.user_id}` + "&accessToken=" + encodeURIComponent(access_token),
+              "force new connection": true,
+              reconnection: 0,
               transports: ['websocket']
             });
 
-            self.socket.on('connect', async (response) => {
-              self.log(`Monitoring SS Events`);
-            });
-
-            self.socket.on('connect_error', async (err) => {
-                self.log("Socket Connect_error", err);
-                self.socket = undefined;
-            });
-
-            self.socket.on('connect_timeout', async () => {
-                self.log("Socket Connect_timeout");
-                self.socket = undefined;
-            });
-
-            self.socket.on('reconnect_attempt', async () => {
-              await self.login_via_credentials();
-              self.socket.io.opts.query = {
-                ns: `/v1/user/${self.user_id}`,
-                accessToken: _access_token
+            self.socket.on('connect', async () => {
+              self.log('Events up and monitoring.');
+              var oldOnevent = self.socket.onevent
+              self.socket.onevent = function (packet) {
+                if (packet.data && packet.data[0] != 'hiddenEvent' && packet.data[0] != 'event' && packet.data[0] != 'cameraEvent') {
+                  self.log('New event', {name: packet.data[0], payload: packet.data[1]})
+                }
+                oldOnevent.apply(self.socket, arguments)
               };
+        
             });
 
-            self.socket.on('disconnect', async (data) => {
-              self.log(`Disconnected ${data}`);  
-              if(self.socket.io.connecting.indexOf(self.socket) === -1) {
-                await self.login_via_credentials();
-                self.socket.connect();
+            self.socket.on('disconnect', () => {
+              self.log('Events Handler disconnect')
+              let sConnect = setInterval(async () => {
+                if (self.socket.connected == true) {
+                  clearTimeout(sConnect);
+                } else {
+                  self.socket.io.opts.query = "ns=" + `${self.simplisafe.webapp.apiPath}/user/${self.user_id}` + "&accessToken=" + encodeURIComponent(access_token);
+                  self.socket.open();
+                }  
+              }, 1000);
+            });
+
+            self.socket.on('error', async (data) =>{
+              if (data == 'Not authorized') {
+                try{
+                await self._Refresh_Access_Token(self.#refresh_token);
+                } catch (err) {
+                  await self.login_via_credentials();
+                };
+              } else {
+                self.log('Event Handling Errored', data);
               };
+              self.socket.close();
             });
 
             self.socket.on('hiddenEvent', async (data) => {
@@ -263,17 +406,14 @@ class API {
               self.log('cameraEvent', data);
             });
 
-            self.socket.on('sensorEvent', async (data) => {
-              self.log('sensorEvent', data);
-            });
-            
             self.socket.on("pong", async ()=>{
               try {
-                await self.uAccessories();
+                await self._uAccessories();
               } catch (err){
+                self.log(err);
                 await self.login_via_credentials();
-                await self.uAccessories();
-              }
+                await self._uAccessories();
+              };
           });
 
         } catch (err) {
@@ -281,51 +421,6 @@ class API {
         }
     }
   };//End of Function get_SokectEvents
-
-  async request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
-    var self = this;
-
-    var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
-
-    if (params){
-      Object.keys(params).forEach(item=> {
-          url.searchParams.append(item.toString(), params[item]);
-      });
-    };
-
-    if (!kwargs.auth) headers['Authorization'] = _access_token_type + ' ' + _access_token; else headers['Authorization'] = kwargs.auth;
-
-    headers={
-            ...headers,
-            'Content-Type': 'application/json; charset=utf-8',
-            "User-Agent": "SimpliSafe/2105 CFNetwork/902.2 Darwin/17.7.0"
-    };
-
-    var options = {
-      method: method,
-      headers: headers
-    }
-    try {
-      return await webResponse(url, options, data);
-    } catch(err)  {
-      if (err.statusCode == 401 && !self.actively_refreshing) {
-        try {
-          self.actively_refreshing = true;      
-          await self._Refresh_Access_Token(self._refresh_token);
-          return await webResponse(url, options, data);
-        } catch (err) {
-          if (err.statusCode == 401 && err.statusCode == 403) {
-            try {
-              await self.login_via_credentials();
-              return await webResponse(url, options, data);
-            } catch (err_1) {
-                  throw (err_1.statusMessage);
-            };
-          };
-        };  
-      };
-    };
-  };//End Of Function Request
 
   async set_Alarm_State(value) {
     var self = this;
@@ -335,7 +430,7 @@ class API {
         await this.get_System();
       }
   
-      return await self.request({method: 'POST', endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`});
+      return await self._Request({method: 'POST', endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`});
     } catch (err) {
       throw(`Set Alarm State : ${err}`);
     }
@@ -348,7 +443,7 @@ class API {
       if (!self.subId) {
         await this.get_System();
       }
-      return await self.request({method: 'POST', endpoint: `/doorlock/${self.subId}/${lockId}/state`, data: {"state": State.toLowerCase()}});
+      return await self._Request({method: 'POST', endpoint: `/doorlock/${self.subId}/${lockId}/state`, data: {"state": State.toLowerCase()}});
     } catch (err) {
       throw(`Set Lock State : ${err}`);
     }
@@ -356,91 +451,6 @@ class API {
 
   };//End of set_Alarm_State
 
-  async uAccessories() {
-    var self = this;
-    let Accessory, index;
-    let system = await self.get_System();
-    {
-      let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + system.serial.toLowerCase());
-      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
-      if (index == -1) {
-        this.Accessories.push({
-          flags:{
-            offline: system.isOffline
-          },
-          model: Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === self.DeviceIds.baseStation),
-          name: 'SimpliSafe Alarm System',
-          serial: system.serial,
-          status: {
-            triggered: system.isAlarming ? 'ALARM' : system.alarmState,
-            temp: system.temperature
-          },
-          type: self.DeviceIds.baseStation,
-          uuid: uuid,
-          version: system.version
-        });
-      } else {
-        Accessory = this.Accessories[index];
-        Accessory.flags.offline = system.isOffline;
-        Accessory.status.triggered = system.isAlarming ? 'ALARM' : system.alarmState;
-        Accessory.status.temp = system.temperature;
-      };
-    };
-
-    for (let camera of system.cameras){
-      let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.camera] + ' ' + camera.uuid.toLowerCase());
-      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
-      if (index == -1) {
-        this.Accessories.push({
-          flags: {
-            offline: camera.status=='online'? false : true,
-            shutter: system.isAlarming ? 'alarm' : camera.cameraSettings[shutter_AlarmState[system.alarmState.toLowerCase()]]
-          },
-          model: camera.model,
-          name: camera.cameraSettings.cameraName || 'Camera',
-          serial: camera.uuid,
-          status: {
-            fps: camera.cameraSettings.admin.fps
-          },
-          type: self.DeviceIds.camera,
-          uuid: uuid, 
-          version: camera.model.toString().replace('SS','')
-        });
-      } else {
-        Accessory = this.Accessories[index];
-        Accessory.flags.offline = camera.status=='online'? false : true;
-        Accessory.flags.shutter = system.isAlarming ? 'alarm' : camera.cameraSettings[shutter_AlarmState[system.alarmState.toLowerCase()]];
-        Accessory.status.fps = camera.cameraSettings.admin.fps;
-      };
-    };
-
-    for (let sensor of await self.get_Sensors()){
-      let uuid = self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase());
-      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
-      if (index == -1) {
-        this.Accessories.push({
-          ...sensor,
-          'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type), 
-          'uuid': uuid,
-          'version': system.version
-        });
-      } else {
-        Accessory = this.Accessories[index];
-        Accessory.status.triggered = sensor.status.triggered;
-        Accessory.deviceGroupID =sensor.deviceGroupID;
-        Accessory.setting.instantTrigger = sensor.setting.instantTrigger;
-        Accessory.setting.away2 = sensor.setting.away2;
-        Accessory.setting.away = sensor.setting.away;
-        Accessory.setting.home2 = sensor.setting.home2;
-        Accessory.setting.home = sensor.setting.home;
-        Accessory.setting.off = sensor.setting.off;
-        Accessory.flags.swingerShutdown = sensor.flags.swingerShutdown;
-        Accessory.flags.lowBattery = sensor.flags.lowBattery; 
-        Accessory.flags.offline = sensor.flags.offline; 
-        if (sensor.status.temperature) Accessory.status.temperature = sensor.status.triggered;
-      };
-    };
-  };//End Of Function uAccessories
 
 };//End Of Class API
 
@@ -502,7 +512,7 @@ class CameraSource {
 
           let sourceArgs = [
             ['-re'],
-            ['-headers', `Authorization: ${_access_token_type} ${_access_token}`],
+            ['-headers', `Authorization: ${access_token_type} ${access_token}`],
             ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/flv`]
           ];
 
@@ -622,7 +632,7 @@ class CameraSource {
       };
     };
 
-    let sourceArgs = [['-re'], ['-headers', `Authorization: ${_access_token_type} ${_access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/mjpg?x=${request.width}`], ['-t', 1], ['-s', `${request.width}x${request.height}`], ['-f', 'image2'], ['-vframes', 1], ['-']];
+    let sourceArgs = [['-re'], ['-headers', `Authorization: ${access_token_type} ${access_token}`], ['-i', `${this.simplisafe.webapp.mediaHost}${this.simplisafe.webapp.mediaPath}/${this.ssCamera.serial}/mjpg?x=${request.width}`], ['-t', 1], ['-s', `${request.width}x${request.height}`], ['-f', 'image2'], ['-vframes', 1], ['-']];
     let source = [].concat(...sourceArgs.map(arg => arg.map(a => typeof a == 'string' ? a.trim() : a)));
     let ffmpegCmd = require('child_process').spawn(require("@ffmpeg-installer/ffmpeg").path, [...source], {env: process.env})
     .on('error', error => {
