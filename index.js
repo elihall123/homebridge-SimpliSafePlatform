@@ -220,7 +220,12 @@ class SimpliSafe {
           service.setCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
           break;
 
-        default:
+        case ss.EventContactIds.testSignalReceivedUser:
+        case ss.EventContactIds.testSignalReceivedSensor:
+        case ss.EventContactIds.testSignalReceivedAuto:
+          break;
+
+        case ss.EventContactIds.unknown:
           this.log(data);
           break;
       };
