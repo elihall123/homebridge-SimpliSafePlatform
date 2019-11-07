@@ -78,26 +78,27 @@ class API {
     }
     try {
       return await webResponse(url, options, data);
-    } catch(err)  {
-      if (err.statusCode == 401 && !self.#actively_refreshing) {
+    } catch (err)  {
+      if (err.statusCode == 401 && err.statusCode == 403 && !self.#actively_refreshing) {
         try {
           self.#actively_refreshing = true;      
           await self._Refresh_Access_Token(self.#refresh_token);
-          return await webResponse(url, options, data);
         } catch (err) {
-          if (err.statusCode == 401 && err.statusCode == 403) {
-            try {
-              await self.login_via_credentials();
-              return await webResponse(url, options, data);
-            } catch (err) {
-                  throw (err);
-            };
-          };
-        };  
-      } else if (err.statusCode == 409) {
-        setTimeout(async () => {
-          return await webResponse(url, options, data);
-        }, 3000);
+          await self.login_via_credentials();
+          self.#actively_refreshing = false;   
+        }; 
+        return await webResponse(url, options, data);
+      } else if (err.statusCode == 409 && err.statusCode >= 500) {
+        var resp;
+        let rWait = setInterval(async () => {
+          resp = await webResponse(url, options, data);
+          if (resp) {
+            clearInterval(rWait);
+          }
+        }, 2000);
+        return resp;
+      } else {
+        self.log(err.statusCode, url.href);
       };
     };
   };//End Of Function Request
@@ -320,7 +321,8 @@ class API {
         endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
         params:{'forceUpdate': cached.toString().toLowerCase()} //false = coming from cache
       }));
-      if (resp.sensors != undefined) return resp.sensors; else throw('Sensors')
+      if (!resp) return
+      return resp.sensors;
     } catch (err) {
       throw (err);
     };
@@ -361,7 +363,7 @@ class API {
               self.log('Events up and monitoring.');
               var oldOnevent = self.socket.onevent
               self.socket.onevent = function (packet) {
-                if (packet.data && packet.data[0] != 'hiddenEvent' && packet.data[0] != 'event' && packet.data[0] != 'cameraEvent') {
+                if (packet.data && packet.data[0] != 'hiddenEvent' && packet.data[0] != 'event' && packet.data[0] != 'cameraEvent' && packet.data[0] != 'confirm-registered') {
                   self.log('New event', {name: packet.data[0], payload: packet.data[1]})
                 }
                 oldOnevent.apply(self.socket, arguments)
