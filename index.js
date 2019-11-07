@@ -52,26 +52,21 @@ class SimpliSafe {
       this.api.on('didFinishLaunching', ()=> { 
         this.initial.then(()=>{
           this.updateHKAccessories();
-          this.ssEventsHandler();          
+          this.HKEventsHandler();          
         });
       });
     };
   };//End Of Function SimpliSafe 
 
-  ssEventsHandler(){
+  HKEventsHandler(){
     ss.get_SokectEvents((data) => {
-/*      if (data==='DISCONNECT') {
-        this.log("Socket was disconnected. Trying to reconnect...")
-        this.ssEventsHandler();
-      }
-*/
       if (!data.eventCid) return;
       if (data.sid != ss.subId) return;
       if (!this.supportedHKDevices.includes(data.sensorType)) return;
 
       let accessory;
 
-      this.log(data.messageBody);
+      if (data.messageBody=='') this.log(data.info); else this.log(data.messageBody);
 
       if (data.sensorType == ss.DeviceIds.baseStation) {
         accessory = this.hkAccessories.find(pAccessory => pAccessory.UUID == UUIDGen.generate(ss.DeviceIds[data.sensorType] + ' ' + data.account.toLowerCase()));
@@ -112,29 +107,23 @@ class SimpliSafe {
 
         case ss.EventContactIds.systemHome2:
         case ss.EventContactIds.systemArmedHome:
-          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.STAY_ARM) {
-            service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);
+            if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.STAY_ARM) service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.STAY_ARM);
             if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.STAY_ARM); 
-          };
           break;
 
         case ss.EventContactIds.systemArmedAway:
         case ss.EventContactIds.systemAwayRemote:
         case ss.EventContactIds.systemAway2:
         case ss.EventContactIds.systemAway2Remote:
-          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.AWAY_ARM) {
-            service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM); 
+            if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.AWAY_ARM) service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.AWAY_ARM); 
             if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.AWAY_ARM); 
-          };
           break;
 
         case ss.EventContactIds.alarmCanceled:
         case ss.EventContactIds.systemDisarmed:
         case ss.EventContactIds.systemOff:
-          if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.DISARMED) {
-            service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED); 
+            if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != Characteristic.SecuritySystemCurrentState.DISARMED) service.setCharacteristic(Characteristic.SecuritySystemCurrentState, Characteristic.SecuritySystemCurrentState.DISARMED); 
             if (service.getCharacteristic(Characteristic.SecuritySystemCurrentState).value != service.getCharacteristic(Characteristic.SecuritySystemTargetState).value) service.setCharacteristic(Characteristic.SecuritySystemTargetState, Characteristic.SecuritySystemTargetState.DISARMED); 
-          };
           break;
 
         case ss.EventContactIds.sensorError:
@@ -214,11 +203,13 @@ class SimpliSafe {
           break;
 
         case ss.EventContactIds.entryunlocked:
-          service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED); 
+            if (service.getCharacteristic(Characteristic.LockCurrentState).value != Characteristic.LockCurrentState.UNSECURED) service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED); 
+            if (service.getCharacteristic(Characteristic.LockTargetState).value != Characteristic.LockTargetState.UNSECURED) service.setCharacteristic(Characteristic.LockTargetState, Characteristic.LockTargetState.UNSECURED); 
           break;
 
         case ss.EventContactIds.entrylocked:
-          service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.SECURED); 
+            if (service.getCharacteristic(Characteristic.LockCurrentState).value != Characteristic.LockCurrentState.SECURED) service.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.SECURED); 
+            if (service.getCharacteristic(Characteristic.LockTargetState).value != Characteristic.LockTargetState.SECURED) service.setCharacteristic(Characteristic.LockTargetState, Characteristic.LockTargetState.SECURED); 
           break;
 
         case ss.EventContactIds.entrySensorSynced:
@@ -394,14 +385,14 @@ class SimpliSafe {
         case ss.DeviceIds.doorLock: // Door locks handled like basestation
           if (!hkAccessory.getService(Service.LockMechanism)) hkAccessory.addService(Service.LockMechanism);
           hkService = hkAccessory.getService(Service.LockMechanism);
-          
-          if (ssAccessory.status.lockState==0) {
-            hkService.setCharacteristic(Characteristic.LockTargetState, Characteristic.LockTargetState.UNSECURED);
-            hkService.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED);
-          } else if (ssAccessory.status.lockState==1) {
+
+          if (ssAccessory.status.lockState==1) {
             hkService.setCharacteristic(Characteristic.LockTargetState, Characteristic.LockTargetState.SECURED);
             hkService.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.SECURED);
-          };
+          } else if (ssAccessory.status.lockState==2) {
+            hkService.setCharacteristic(Characteristic.LockTargetState, Characteristic.LockTargetState.UNSECURED);
+            hkService.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.UNSECURED);
+          } ;
           
           if (ssAccessory.status.lockJamState) {
             hkService.setCharacteristic(Characteristic.LockCurrentState, Characteristic.LockCurrentState.JAMMED);
