@@ -14,6 +14,7 @@ class API {
   #refresh_token;
   #actively_refreshing = false;
   #access_token_expire;
+  #cell_Int=0;
 
   async _authenticate(payload_data){
     //Request token data...
@@ -55,6 +56,7 @@ class API {
 
   async _Request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
+    //self.log(endpoint, data);
 
     var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
 
@@ -64,7 +66,12 @@ class API {
       });
     };
 
-    if (!kwargs.auth) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
+    if (self.#access_token_expire && Date.now() >= self.#access_token_expire && !self.#actively_refreshing){
+      self._actively_refreshing = True
+      await self.refresh_access_token(self._refresh_token)
+    };
+
+    if (!kwargs.auth && access_token) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
 
     headers={
             ...headers,
@@ -79,37 +86,41 @@ class API {
     try {
       return await webResponse(url, options, data);
     } catch (err)  {
-      if (err.statusCode == 401 && err.statusCode == 403 && !self.#actively_refreshing) {
-        try {
-          self.#actively_refreshing = true;      
-          await self._Refresh_Access_Token(self.#refresh_token);
-        } catch (err) {
-          await self.login_via_credentials();
-          self.#actively_refreshing = false;   
-        }; 
-        return await webResponse(url, options, data);
-      } else if (err.statusCode == 409 && err.statusCode >= 500) {
-        var resp;
-        let rWait = setInterval(async () => {
-          resp = await webResponse(url, options, data);
-          if (resp) {
-            clearInterval(rWait);
-          }
-        }, 2000);
-        return resp;
-      } else {
-        self.log(err.statusCode, url.href);
+      if (err.statusCode == 401 ) {
+        if (self.#actively_refreshing) self.log("Refresh token was unsuccessful on 401");
+        if (self.#refresh_token) {
+          self.log(`401 detected; attempting refresh token`);
+          self._access_token_expire = Date.now();
+          return await webResponse(url, options, data);
+        };
+      } else if (err.statusCode == 403) {
+        if (self.user_id){
+          self.log(`403 detected; Endpoint unavailable in plan: ${endpoint}`);
+          return {};
+        };
+      } else if (err.statusCode == 409) {
+        if (self.user_id) {
+          self.log(`409 detected; attempting again in 2 secs: ${endpoint}`);
+          var promise = new Promise((resolve) => {
+              setTimeout(async () => {
+                let resp = await webResponse(url, options, data);
+                resolve(resp);
+              }, 2000);  
+          });
+          return promise;
+        };
       };
+      throw (`Error requesting data from ${endpoint}: ${err.statusCode}`)
     };
   };//End Of Function Request
 
   async _uAccessories() {
     var self = this;
+    self.#cell_Int++;
     let Accessory, index;
     let system = await self.get_System();
     {
-      let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + system.serial.toLowerCase());
-      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == self.uuid);
       if (index == -1) {
         this.Accessories.push({
           flags:{
@@ -123,7 +134,7 @@ class API {
             temp: system.temperature
           },
           type: self.DeviceIds.baseStation,
-          uuid: uuid,
+          uuid: self.uuid,
           version: system.version
         });
       } else {
@@ -161,32 +172,38 @@ class API {
       };
     };
 
-    for (let sensor of await self.get_Sensors()){
-      let uuid = self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase());
-      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
-      if (index == -1) {
-        this.Accessories.push({
-          ...sensor,
-          'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type), 
-          'uuid': uuid,
-          'version': system.version
-        });
-      } else {
-        Accessory = this.Accessories[index];
-        Accessory.status.triggered = sensor.status.triggered;
-        Accessory.deviceGroupID =sensor.deviceGroupID;
-        Accessory.setting.instantTrigger = sensor.setting.instantTrigger;
-        Accessory.setting.away2 = sensor.setting.away2;
-        Accessory.setting.away = sensor.setting.away;
-        Accessory.setting.home2 = sensor.setting.home2;
-        Accessory.setting.home = sensor.setting.home;
-        Accessory.setting.off = sensor.setting.off;
-        Accessory.flags.swingerShutdown = sensor.flags.swingerShutdown;
-        Accessory.flags.lowBattery = sensor.flags.lowBattery; 
-        Accessory.flags.offline = sensor.flags.offline; 
-        if (sensor.status.temperature) Accessory.status.temperature = sensor.status.triggered;
+    if (system.connType == 'cell' && (self.#cell_Int % 3)) { 
+      return;
+    } else {
+      for (let sensor of await self.get_Sensors()){
+        let uuid = self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase());
+        index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+        if (index == -1) {
+          this.Accessories.push({
+            ...sensor,
+            'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type), 
+            'uuid': uuid,
+            'version': system.version
+          });
+        } else {
+          Accessory = this.Accessories[index];
+          Accessory.status.triggered = sensor.status.triggered;
+          Accessory.deviceGroupID =sensor.deviceGroupID;
+          Accessory.setting.instantTrigger = sensor.setting.instantTrigger;
+          Accessory.setting.away2 = sensor.setting.away2;
+          Accessory.setting.away = sensor.setting.away;
+          Accessory.setting.home2 = sensor.setting.home2;
+          Accessory.setting.home = sensor.setting.home;
+          Accessory.setting.off = sensor.setting.off;
+          Accessory.flags.swingerShutdown = sensor.flags.swingerShutdown;
+          Accessory.flags.lowBattery = sensor.flags.lowBattery; 
+          Accessory.flags.offline = sensor.flags.offline; 
+          if (sensor.status.temperature) Accessory.status.temperature = sensor.status.triggered;
+        };
       };
     };
+    
+
   };//End Of Function uAccessories
 
   constructor(config, log, UUIDGen) {
@@ -198,8 +215,7 @@ class API {
     self.UUIDGen = UUIDGen;
     self.serial = config.SerialNumber;
     self.user_id;
-    self.uuid = uuid4();
-    
+
     self.Accessories = [];
     self.DeviceIds = {
       unknown: -1,
@@ -292,7 +308,8 @@ class API {
       entrySensorUnsynced: "9705"
 
     };
-    
+
+    self.uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + self.serial.toLowerCase());
 
   };//End Of Function Constructor
 
@@ -360,7 +377,6 @@ class API {
             });
 
             self.socket.on('connect', async () => {
-              self.log('Events up and monitoring.');
               var oldOnevent = self.socket.onevent
               self.socket.onevent = function (packet) {
                 if (packet.data && packet.data[0] != 'hiddenEvent' && packet.data[0] != 'event' && packet.data[0] != 'cameraEvent' && packet.data[0] != 'confirm-registered') {
@@ -369,6 +385,10 @@ class API {
                 oldOnevent.apply(self.socket, arguments)
               };
         
+            });
+
+            self.socket.on('confirm-registered', async () => {
+              self.log('Events up and monitoring.');        
             });
 
             self.socket.on('disconnect', () => {
@@ -441,6 +461,7 @@ class API {
 
   async set_Lock_State(lockId, State) {
     var self = this;
+
     try {
       if (!self.subId) {
         await this.get_System();
@@ -721,13 +742,6 @@ function ipLookUp(hostName) {
     });
   });
 };//End Of Function ipLookUp
-
-function uuid4() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-};// End of Function uuid4
 
 async function webResponse(url, options, data){
     return new Promise(async (resolve, reject) => {
