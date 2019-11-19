@@ -67,8 +67,8 @@ class API {
     };
 
     if (self.#access_token_expire && Date.now() >= self.#access_token_expire && !self.#actively_refreshing){
-      self._actively_refreshing = True
-      await self.refresh_access_token(self._refresh_token)
+      self._actively_refreshing = true;
+      await self.refresh_access_token(self._refresh_token);
     };
 
     if (!kwargs.auth && access_token) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
