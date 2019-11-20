@@ -67,7 +67,7 @@ class API {
     };
 
     if (self.#access_token_expire && Date.now() >= self.#access_token_expire && !self.#actively_refreshing){
-      self._actively_refreshing = true;
+      self.#actively_refreshing = true;
       await self._Refresh_Access_Token(self.#refresh_token);
     };
 
