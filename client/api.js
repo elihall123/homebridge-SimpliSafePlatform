@@ -68,7 +68,7 @@ class API {
 
     if (self.#access_token_expire && Date.now() >= self.#access_token_expire && !self.#actively_refreshing){
       self._actively_refreshing = true;
-      await self.refresh_access_token(self._refresh_token);
+      await self._Refresh_Access_Token(self.#refresh_token);
     };
 
     if (!kwargs.auth && access_token) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
@@ -82,7 +82,8 @@ class API {
     var options = {
       method: method,
       headers: headers
-    }
+    };
+    
     try {
       return await webResponse(url, options, data);
     } catch (err)  {
@@ -101,10 +102,14 @@ class API {
       } else if (err.statusCode == 409) {
         if (self.user_id) {
           self.log(`409 detected; attempting again in 2 secs: ${endpoint}`);
-          var promise = new Promise((resolve) => {
+          var promise = new Promise((resolve, reject) => {
               setTimeout(async () => {
-                let resp = await webResponse(url, options, data);
-                resolve(resp);
+                try {
+                resolve(await webResponse(url, options, data));
+                } catch (err) {
+                  self.log(`409 detected again; failed to communicate: ${endpoint}`);
+                  //reject(err);
+                };
               }, 2000);  
           });
           return promise;
@@ -425,6 +430,19 @@ class API {
             });
 
             self.socket.on('cameraEvent', async (data) => {
+              /*cameraEvent {
+                eventType: 'cameraStatus',
+                uid: 607728,
+                sid: 1259356,
+                status: 'online',
+                uuid: 'a01fe2bbd5cc036ddc65c6b9a000922b'
+              }*/
+              let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.camera] + ' ' + data.uuid.toLowerCase());
+              index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+              if (index != -1) {
+                Accessory = this.Accessories[index];
+                Accessory.flags.offline = data.status=='online'? false : true;
+              };             
               self.log('cameraEvent', data);
             });
 
@@ -473,7 +491,6 @@ class API {
 
 
   };//End of set_Alarm_State
-
 
 };//End Of Class API
 
