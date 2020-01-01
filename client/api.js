@@ -486,7 +486,7 @@ class API {
       if (!self.subId) await this.get_System();
 
       if (self.MajorVersion == 2) {
-        return await self._Request({ method:'POST', endpoint:`subscriptions/${self.subId}/state`, params:{"state": value.toLowerCase()} });
+        return await self._Request({ method:'POST', endpoint:`/subscriptions/${self.subId}/state`, params:{"state": value.toLowerCase()} });
       } else {
         return await self._Request({ method:'POST', endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`});
       }
