@@ -14,7 +14,6 @@ class API {
   #refresh_token;
   #actively_refreshing = false;
   #access_token_expire;
-  #cell_Int=0;
 
   async _authenticate(payload_data){
     //Request token data...
@@ -56,7 +55,6 @@ class API {
 
   async _Request({method='', endpoint='', headers={}, params={}, data={}, json={}, ...kwargs}){
     var self = this;
-    //self.log(endpoint, data);
 
     var url = new URL(self.simplisafe.webapp.apiHost + self.simplisafe.webapp.apiPath + '/' + endpoint);
 
@@ -66,12 +64,7 @@ class API {
       });
     };
 
-    if (self.#access_token_expire && Date.now() >= self.#access_token_expire && !self.#actively_refreshing){
-      self.#actively_refreshing = true;
-      await self._Refresh_Access_Token(self.#refresh_token);
-    };
-
-    if (!kwargs.auth && access_token) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
+    if (!kwargs.auth) headers['Authorization'] = access_token_type + ' ' + access_token; else headers['Authorization'] = kwargs.auth;
 
     headers={
             ...headers,
@@ -82,50 +75,49 @@ class API {
     var options = {
       method: method,
       headers: headers
-    };
-    
+    }
+    if (self.debug) debug(`Sending HTTP Request url: ${url.href}, options: ${JSON.stringify(options)}, data: ${JSON.stringify(data)}`);
+
     try {
-      return await webResponse(url, options, data);
+      if (self.debug) {
+        let resp = await webResponse(url, options, data);
+        debug(resp);
+        return resp;
+      } else {
+        return await webResponse(url, options, data);
+      }
     } catch (err)  {
-      if (err.statusCode == 401 ) {
-        if (self.#actively_refreshing) self.log("Refresh token was unsuccessful on 401");
-        if (self.#refresh_token) {
-          self.log(`401 detected; attempting refresh token`);
-          self._access_token_expire = Date.now();
-          return await webResponse(url, options, data);
-        };
-      } else if (err.statusCode == 403) {
-        if (self.user_id){
-          self.log(`403 detected; Endpoint unavailable in plan: ${endpoint}`);
-          return {};
-        };
-      } else if (err.statusCode == 409) {
-        if (self.user_id) {
-          self.log(`409 detected; attempting again in 2 secs: ${endpoint}`);
-          var promise = new Promise((resolve, reject) => {
-              setTimeout(async () => {
-                try {
-                resolve(await webResponse(url, options, data));
-                } catch (err) {
-                  self.log(`409 detected again; failed to communicate: ${endpoint}`);
-                  //reject(err);
-                };
-              }, 2000);  
-          });
-          return promise;
-        };
+      if (err.statusCode == 401 && err.statusCode == 403 && !self.#actively_refreshing) {
+        try {
+          self.#actively_refreshing = true;      
+          await self._Refresh_Access_Token(self.#refresh_token);
+        } catch (err) {
+          await self.login_via_credentials();
+          self.#actively_refreshing = false;   
+        }; 
+        return await webResponse(url, options, data);
+      } else if (err.statusCode == 409 && err.statusCode >= 500) {
+        var resp;
+        let rWait = setInterval(async () => {
+          resp = await webResponse(url, options, data);
+          if (resp) {
+            clearInterval(rWait);
+          }
+        }, 2000);
+        return resp;
+      } else {
+        self.log(err.statusCode, url.href);
       };
-      throw (`Error requesting data from ${endpoint}: ${err.statusCode}`)
     };
   };//End Of Function Request
 
-  async _uAccessories() {
+  async _uAccessories(cache) {
     var self = this;
-    self.#cell_Int++;
     let Accessory, index;
     let system = await self.get_System();
     {
-      index = this.Accessories.findIndex((sItem) => sItem.uuid == self.uuid);
+      let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + system.serial.toLowerCase());
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
       if (index == -1) {
         this.Accessories.push({
           flags:{
@@ -139,7 +131,7 @@ class API {
             temp: system.temperature
           },
           type: self.DeviceIds.baseStation,
-          uuid: self.uuid,
+          uuid: uuid,
           version: system.version
         });
       } else {
@@ -177,50 +169,46 @@ class API {
       };
     };
 
-    if (system.connType == 'cell' && (self.#cell_Int % 3)) { 
-      return;
-    } else {
-      for (let sensor of await self.get_Sensors()){
-        let uuid = self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase());
-        index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
-        if (index == -1) {
-          this.Accessories.push({
-            ...sensor,
-            'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type), 
-            'uuid': uuid,
-            'version': system.version
-          });
-        } else {
-          Accessory = this.Accessories[index];
-          Accessory.status.triggered = sensor.status.triggered;
-          Accessory.deviceGroupID =sensor.deviceGroupID;
-          Accessory.setting.instantTrigger = sensor.setting.instantTrigger;
-          Accessory.setting.away2 = sensor.setting.away2;
-          Accessory.setting.away = sensor.setting.away;
-          Accessory.setting.home2 = sensor.setting.home2;
-          Accessory.setting.home = sensor.setting.home;
-          Accessory.setting.off = sensor.setting.off;
-          Accessory.flags.swingerShutdown = sensor.flags.swingerShutdown;
-          Accessory.flags.lowBattery = sensor.flags.lowBattery; 
-          Accessory.flags.offline = sensor.flags.offline; 
-          if (sensor.status.temperature) Accessory.status.temperature = sensor.status.triggered;
-        };
+    for (let sensor of await self.get_Sensors(cache)){
+      let uuid = self.UUIDGen.generate(self.DeviceIds[sensor.type] + ' ' + sensor.serial.toLowerCase());
+      index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
+      if (index == -1) {
+        this.Accessories.push({
+          ...sensor,
+          'model': Object.keys(self.DeviceIds).find(key => self.DeviceIds[key] === sensor.type), 
+          'uuid': uuid,
+          'version': system.version
+        });
+      } else {
+        Accessory = this.Accessories[index];
+        Accessory.status.triggered = sensor.status.triggered;
+        Accessory.deviceGroupID =sensor.deviceGroupID;
+        Accessory.setting.instantTrigger = sensor.setting.instantTrigger;
+        Accessory.setting.away2 = sensor.setting.away2;
+        Accessory.setting.away = sensor.setting.away;
+        Accessory.setting.home2 = sensor.setting.home2;
+        Accessory.setting.home = sensor.setting.home;
+        Accessory.setting.off = sensor.setting.off;
+        Accessory.flags.swingerShutdown = sensor.flags.swingerShutdown;
+        Accessory.flags.lowBattery = sensor.flags.lowBattery; 
+        Accessory.flags.offline = sensor.flags.offline; 
+        if (sensor.status.temperature) Accessory.status.temp = sensor.status.temperature;
       };
     };
-    
-
   };//End Of Function uAccessories
 
   constructor(config, log, UUIDGen) {
     //Initialize.
     var self = this;
     if (!log) {self.log = console.log;} else {self.log = log;}
+    self.debug = process.env.DEBUG != undefined;
     this.#email = config.username;
     this.#password = config.password;
     self.UUIDGen = UUIDGen;
     self.serial = config.SerialNumber;
     self.user_id;
-
+    self.uuid = uuid4();
+    
     self.Accessories = [];
     self.DeviceIds = {
       unknown: -1,
@@ -313,8 +301,7 @@ class API {
       entrySensorUnsynced: "9705"
 
     };
-
-    self.uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.baseStation] + ' ' + self.serial.toLowerCase());
+    
 
   };//End Of Function Constructor
 
@@ -322,11 +309,13 @@ class API {
     //Get systems associated to this account.
     var self = this;
     try{
+      if (self.debug) debug("getting system status");
       var resp = await self._Request({method: 'GET', endpoint: 'users/' + self.user_id + '/subscriptions', params: {'activeOnly': 'true'}});
       for (var system_data of resp.subscriptions){
         if (system_data.location.system.serial === self.serial) {
             self.subId = system_data.sid;
-            self.sysVersion = system_data.location.system.version;
+            self.MajorVersion = system_data.location.system.version;
+            self.connType = system_data.location.system.connType;
             return system_data.location.system;
           }
       };
@@ -337,17 +326,52 @@ class API {
 
   async get_Sensors(cached = true) {
     var self = this;
-    try{
-      let resp =  (await self._Request({
-        method:'GET',
-        endpoint:'ss3/subscriptions/' + self.subId + '/sensors',
-        params:{'forceUpdate': cached.toString().toLowerCase()} //false = coming from cache
-      }));
-      if (!resp) return
-      return resp.sensors;
+    var resp=[], respv2, respV3;
+
+    try {
+      if (!self.subId) await this.get_System();
+      if (self.debug) debug("getting sensor status");
+      2 === self.MajorVersion && (respv2 = (await self._Request({method:'GET', endpoint:`subscriptions/${self.subId}/settings`, params:{settingsType: 'sensors', cached: cached == false ? 'false' : 'true' }})).settings.sensors) ||  3 === self.MajorVersion && (respV3 = (await self._Request({method:'GET', endpoint:`ss3/subscriptions/${self.subId}/sensors`, params:{"forceUpdate": cached == false ? 'true' : 'false'}})).sensors);
+
+      if (self.MajorVersion==2) {
+        //self.log(respv2)
+        respv2.forEach((e) =>{
+          if (Object.keys(e).length!==0) {
+            let sensor = {};
+            var r = self.DeviceIds,
+            t = e.type,
+            n = e.serial && e.serial.toUpperCase(),
+            a = e.name,
+            l = e.data || e.sensorData || 0;
+            sensor.setting = e.setting + 64 * (e.enotify ? 1 : 0) //move the settings up to higher bitwise not sure why....
+
+            sensor.serial = n, 
+            sensor.type = t, 
+            t === r.freezeSensor && (sensor.status =  { triggered : 41 === sensor.setting && (127 & l) <= 41 || 32 === sensor.setting && (127 & l) <= 32 /*  static values for alarm trips */ , temperature: (127 & l) }) || (sensor.status =  { triggered : (1 == (3 & l) ? true : false) } ),
+            sensor.name = a,
+            t === r.entrySensor && (
+              sensor.setting = { instantTrigger: e.instant,             
+              away2: (16 & e.setting) ? 0 : 1,
+              away: (8 & e.setting) ? 0 : 1,
+              home2: (4 & e.setting) ? 0 : 1,
+              home: (2 & e.setting) ? 0 : 1,
+              off: (1 & e.setting) ? 0 : 1
+            }
+            ) || (sensor.setting = { instantTrigger: e.instant }),
+            t !== r.glassbreakSensor && t !== r.coDetector && t !== r.smokeDetector && (sensor.flags = { offline: (255 === l) }) || (sensor.flags = { lowBattery: 1 == (1 & l) ? true : !(2 != (2 & l)), offline: (255 === l) });
+            
+            resp.push(sensor);
+          }
+          
+        });
+        return resp;
+      } else return respV3;
+        
+      
     } catch (err) {
-      throw (err);
+      throw ('Sensors:', err);
     };
+
   };//End Of Function get_Sensors
 
   async login_via_credentials(){
@@ -370,7 +394,7 @@ class API {
   
   async get_SokectEvents(callback) {
     var self = this;
-
+    let connTypeCell = false;
     if (!self.socket) {
         try {
             self.socket = require("socket.io-client")(`${self.simplisafe.webapp.apiHost}${self.simplisafe.webapp.apiPath}/user/${self.user_id}`, {
@@ -392,8 +416,8 @@ class API {
         
             });
 
-            self.socket.on('confirm-registered', async () => {
-              self.log('Events up and monitoring.');        
+            self.socket.on('confirm-registered', async (data) => {
+               data[0] == self.user_id ? self.log('Events up and monitoring.') : self.socket.close();
             });
 
             self.socket.on('disconnect', () => {
@@ -422,37 +446,30 @@ class API {
             });
 
             self.socket.on('hiddenEvent', async (data) => {
-              callback(data);
+              if (data.sid == self.subId) callback('hiddenEvent', data);
             });
 
             self.socket.on('event', async (data) => {  
-              callback(data);
+              if (data.sid == self.subId) callback('systemEvent', data);
             });
 
             self.socket.on('cameraEvent', async (data) => {
-              /*cameraEvent {
-                eventType: 'cameraStatus',
-                uid: 607728,
-                sid: 1259356,
-                status: 'online',
-                uuid: 'a01fe2bbd5cc036ddc65c6b9a000922b'
-              }*/
-              let uuid = self.UUIDGen.generate(self.DeviceIds[self.DeviceIds.camera] + ' ' + data.uuid.toLowerCase());
-              index = this.Accessories.findIndex((sItem) => sItem.uuid == uuid);
-              if (index != -1) {
-                Accessory = this.Accessories[index];
-                Accessory.flags.offline = data.status=='online'? false : true;
-              };             
-              self.log('cameraEvent', data);
+              if (data.sid == self.subId) callback('cameraEvent', data);
             });
 
             self.socket.on("pong", async ()=>{
               try {
-                await self._uAccessories();
+                if (self.connType.toLowerCase() == 'cell' && connTypeCell) { 
+                  connTypeCell = false;
+
+                } else {
+                  connTypeCell = true;
+                };  
+
+                await self._uAccessories(connTypeCell);
               } catch (err){
-                self.log(err);
                 await self.login_via_credentials();
-                await self._uAccessories();
+                await self._uAccessories(connTypeCell);
               };
           });
 
@@ -466,11 +483,14 @@ class API {
     var self = this;
     
     try {
-      if (!self.subId) {
-        await this.get_System();
+      if (!self.subId) await this.get_System();
+
+      if (self.MajorVersion == 2) {
+        return await self._Request({ method:'POST', endpoint:`subscriptions/${self.subId}/state`, params:{"state": value.toLowerCase()} });
+      } else {
+        return await self._Request({ method:'POST', endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`});
       }
-  
-      return await self._Request({method: 'POST', endpoint: `/ss3/subscriptions/${self.subId}/state/${value}`});
+
     } catch (err) {
       throw(`Set Alarm State : ${err}`);
     }
@@ -479,7 +499,6 @@ class API {
 
   async set_Lock_State(lockId, State) {
     var self = this;
-
     try {
       if (!self.subId) {
         await this.get_System();
@@ -492,11 +511,13 @@ class API {
 
   };//End of set_Alarm_State
 
+
 };//End Of Class API
 
 class CameraSource {
   constructor(ssCamera, UUIDGen, StreamController, log) {
     this.ssCamera = ssCamera;
+    this.debug = process.env.DEBUG != undefined;
     let fps = ssCamera.status.fps;
     this.UUIDGen = UUIDGen;
     this.StreamController = StreamController;
@@ -619,7 +640,7 @@ class CameraSource {
 
           this.log(`Start streaming video from ${this.ssCamera.name}`);
           cmd.stderr.on('data', data => {
-            //this.log(data.toString());
+            if (this.debug) debug(data.toString());
           });
           cmd.on('error', err => {
             this.log('An error occurred while making stream request');
@@ -760,6 +781,13 @@ function ipLookUp(hostName) {
   });
 };//End Of Function ipLookUp
 
+function uuid4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};// End of Function uuid4
+
 async function webResponse(url, options, data){
     return new Promise(async (resolve, reject) => {
       try {
@@ -780,7 +808,7 @@ async function webResponse(url, options, data){
             res.on('data', (chunk) => body.push(chunk)) ;
             res.on('end', () => {
               if (typeof res.headers['content-type']!=='undefined' && res.headers['content-type'].indexOf('application/json') > -1 && body.join('') != '') {
-                //console.log(body.join(''), res.headers);
+                if (this.debug) (body.join(''), res.headers);
                 resolve(JSON.parse(body.join('')));
               } else {
                 resolve(body.join(''))
@@ -828,7 +856,11 @@ function openPort(startingAt) {
   return new Promise(resolve => {
       getNextAvailablePort(startingAt, resolve)
   })
-};//ENd of Function openPort
+};//End of Function openPort
+
+function debug(message){
+  console.log('\x1b[36m  SimpliSafe \x1b[37m[client API]', message);
+}
 
 module.exports = {
   API,
