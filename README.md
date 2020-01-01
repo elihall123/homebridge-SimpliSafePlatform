@@ -1,6 +1,6 @@
 # homebridge-SimpliSafePlatform
 
-This project is a [Homebridge] platform pluging that allows you to monitor and control your SimpliSafe Alarm System with the iOS  Home app (HomeKit) as well as through Siri. This project uses the its own API from several different examples out there... So, with that being said it is an unoffical version of SimpliSafe API and might change in the future without warning. That will cause this to fail unless monitor and the code updated.
+This project is a [Homebridge] platform pluging that allows you to monitor and control your SimpliSafe Alarm System with the iOS  Home app (HomeKit) as well as through Siri. This project uses SimpliSafe API from several different examples out there... So, with that being said it is an unoffical version of SimpliSafe API and might change in the future without warning. That will cause this to fail unless monitor and the code updated.
 
 ## Screenshots
 ![View from the home app](/screenshots/HomeApp.png?raw=true "View from the Home app.")
